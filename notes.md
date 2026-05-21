@@ -2673,7 +2673,7 @@ int main() {
 
 
 
-### 第4天：移动语义(TODO)
+### 第4天：移动语义
 
 **目标：看懂移动构造，知道为什么要用**
 
@@ -2702,11 +2702,16 @@ createDevice("003")        // 函数返回值是右值
 
 ```cpp
 // 假设Buffer内部有个很大的vector
+#include <iostream>
+#include <vector>
+#include <cstdint>
+#include <chrono>
+
 class Buffer {
 public:
-    Buffer(size_t size) : data_(size, 0) {}
+    Buffer(size_t size) : data_(size,0){}
 
-    // 拷贝构造：把data_完整复制一份，很慢
+    // 拷贝构造，把data_完整复制一份，很慢
     Buffer(const Buffer& other) : data_(other.data_) {
         std::cout << "拷贝构造，复制了" << data_.size() << "个字节\n";
     }
@@ -2715,8 +2720,14 @@ private:
     std::vector<uint8_t> data_;
 };
 
-Buffer b1(1024 * 1024);  // 1MB buffer
-Buffer b2 = b1;          // 拷贝构造，复制1MB，慢
+int main() {
+    Buffer b1(1024 * 1024);     // 1MB buffer
+    auto t0 = std::chrono::high_resolution_clock::now();
+    Buffer b2 = b1;              // 拷贝构造，复制1MB，慢
+    auto t1 = std::chrono::high_resolution_clock::now();
+    auto us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+    std::cout << "耗时: " << us << " μs\n";
+}
 ```
 
 
@@ -2724,15 +2735,19 @@ Buffer b2 = b1;          // 拷贝构造，复制1MB，慢
 #### 3.移动构造
 
 ```cpp
+#include <iostream>
+#include <vector>
+#include <cstdint>
+#include <chrono>
+#include <thread>
+
 class Buffer {
 public:
-    Buffer(size_t size) : data_(size, 0) {
-        std::cout << "构造: " << data_.size() << "字节\n";
-    }
+    Buffer(size_t size) : data_(size,0){}
 
     // 拷贝构造：深拷贝，复制数据
     Buffer(const Buffer& other) : data_(other.data_) {
-        std::cout << "拷贝构造: 复制" << data_.size() << "字节\n";
+        std::cout << "拷贝构造，复制了" << data_.size() << "个字节\n";
     }
 
     // 移动构造：把other的资源偷过来，other变成空的
@@ -2745,26 +2760,33 @@ public:
 
     // 移动赋值运算符
     Buffer& operator=(Buffer&& other) noexcept {
-        if (this != &other) {       // 防止自赋值
+        if (this != &other) {   // 防止自赋值
             data_ = std::move(other.data_);
         }
         return *this;
     }
-
-    size_t size() const { return data_.size(); }
 
 private:
     std::vector<uint8_t> data_;
 };
 
 int main() {
-    Buffer b1(1024);
-    Buffer b2 = b1;             // 拷贝构造，复制1024字节
-    Buffer b3 = std::move(b1);  // 移动构造，偷走b1的数据，b1变空
+    Buffer b1(1024 * 1024 * 1024);     // 1GB buffer
 
-    std::cout << "b1: " << b1.size() << "\n";  // 0，已经被偷了
-    std::cout << "b2: " << b2.size() << "\n";  // 1024
-    std::cout << "b3: " << b3.size() << "\n";  // 1024
+    // 拷贝构造性能测试
+    auto t0 = std::chrono::high_resolution_clock::now();
+    Buffer b2 = b1;             // 拷贝构造
+    auto t1 = std::chrono::high_resolution_clock::now();
+    auto us_copy = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+    std::cout << "拷贝构造耗时: " << us_copy << " μs\n";
+
+    // 移动构造性能测试
+    auto t2 = std::chrono::high_resolution_clock::now();
+    Buffer b3 = std::move(b1);  // 移动构造，偷走b1的数据，b1变空
+    auto t3 = std::chrono::high_resolution_clock::now();
+    auto us_move = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count();
+    std::cout << "移动构造耗时: " << us_move << " μs\n";
+    
 }
 ```
 
@@ -2822,6 +2844,7 @@ buffers.push_back(std::move(b));  // b不再需要，move进vector
 #include <vector>
 #include <string>
 #include <cstring>
+#include <cstdint>
 
 // 练习1：给这个类加上移动构造和移动赋值
 // 这个类管理一块原始内存（不用vector，手动管理）
@@ -2851,11 +2874,24 @@ public:
     // 移动构造：把other的data_指针偷过来
     //           other的data_置nullptr，size_置0
     //           （否则other析构时会delete已经被偷走的内存，崩溃）
-    RawBuffer(RawBuffer&& other) noexcept;
+    RawBuffer(RawBuffer&& other) noexcept : size_(other.size_), data_(other.data_) {
+        other.data_ = nullptr;
+        other.size_ = 0;
+        std::cout << "移动构造: " << size_ << "字节\n";
+    }
 
     // 移动赋值：先释放自己的内存，再偷other的
     //           注意防止自赋值
-    RawBuffer& operator=(RawBuffer&& other) noexcept;
+    RawBuffer& operator=(RawBuffer&& other) noexcept {
+        if (this != &other) {
+            delete[] data_;
+            this->data_ = other.data_;
+            this->size_ = other.size_;
+            other.data_ = nullptr;
+            other.size_ = 0;
+        }
+        return *this;
+    }
 
     size_t size() const { return size_; }
     uint8_t* data() { return data_; }
@@ -2869,13 +2905,9 @@ private:
 // 练习2：实现这个函数
 // 把src的内容移动到dst，src变成空buffer(size=0)
 // 不能拷贝，只能移动
-void transferBuffer(RawBuffer& dst, RawBuffer& src);
-
-
-// 练习3：升级DeviceManager的registerDevice
-// 原来：make_unique然后move进map
-// 现在：直接用emplace原地构造，不需要move
-// 提示：map::emplace可以直接在容器内构造对象
+void transferBuffer(RawBuffer& dst, RawBuffer& src) {
+    dst = std::move(src);
+}
 
 int main() {
     // 测试移动构造
@@ -2921,9 +2953,577 @@ int main() {
 
 
 
+RAII = Resource Acquisition Is Initialization 资源获取即初始化，说人话就是：
+
+```cpp
+// 没有RAII的世界
+void bad() {
+    int fd = open("file.txt", O_RDONLY);
+    
+    if (error1) {
+        close(fd);  // 每个退出路径都要手动释放
+        return;
+    }
+    
+    if (error2) {
+        close(fd);  // 忘了一个就泄漏
+        return;
+    }
+    
+    close(fd);  // 正常路径
+}
+
+// RAII的世界
+void good() {
+    FileGuard f("file.txt");  // 构造时获取资源
+    
+    if (error1) return;  // 自动析构，自动释放
+    if (error2) return;  // 自动析构，自动释放
+    
+}  // 自动析构，自动释放
+```
+
+**核心思想：把资源的生命周期绑定到对象的生命周期。**
+
+
+
+#### **std::lock_guard**
+
+```cpp
+#include <mutex>
+std::mutex mtx;
+
+// 没有RAII的锁
+void bad_lock(){
+    mtx.lock();
+    
+    if(error){
+        mtx.unlock();	// 忘了就死锁
+    }
+    
+    mtx.unlock();
+}
+
+// lock_guard：RAII锁
+void good_lock(){
+    std::lock_guard<std::mutex> lock(mtx);	// 构造时lock
+    
+    if(error) return; // 析构时自动unlock
+}	// 析构时自动unlock
+```
+
+
+
+#### **std::unique_lock**
+
+```cpp
+// lock_guard：简单，不能手动解锁
+// unique_lock：灵活，可以手动控制
+
+std::mutex mtx;
+
+void flexible_lock(){
+    std::unique_lock<std::mutex> lock(mtx);	// 构造时lock
+    
+    // 做一些需要锁的操作
+    lock.unlock();   // 可以提前解锁
+    
+    // 做一些不需要锁的耗时操作
+    lock.lock();     // 再次加锁
+}	// 析构时自动unlock（如果还持有锁）
+```
+
+
+
+#### **异常安全**
+
+```cpp
+// 异常安全的三个级别：
+
+// 1. 基本保证：抛异常后对象还处于有效状态
+// 2. 强保证：抛异常后状态完全回滚（要么成功要么不变）
+// 3. 不抛异常：noexcept，移动构造应该是这个级别
+
+// 实际工程里追求基本保证就够了
+// 关键：有RAII就自动有基本保证
+
+class DeviceManager{
+public:
+    bool registerDevice(const std::string& id){
+        auto device = std::make_unique<Device>(id);		// unique_ptr在栈上
+        // device是栈上的unique_ptr，自动析构。没有内存泄漏，这就是基本保证
+        
+        // 假设这里抛异常
+        // 异常导致直接跳出函数
+        // 栈上的device（unique_ptr）自动析构
+		devices_[id] = std::move(device);	// 比如map内存不足抛异常
+        return true;
+    }
+}
+```
+
+
+
+**`mutable`关键字：**
+
+```cpp
+// const成员函数不能修改成员变量
+// 但mutex需要在const函数里lock
+// mutable告诉编译器：这个变量即使在const函数里也可以修改
+mutable std::mutex mtx_;
+
+int get() const {
+    std::lock_guard<std::mutex> lock(mtx_);  // const函数里lock
+    return count_;
+}
+```
+
+
+
+#### 小练习
+
+```cpp
+// 文件名：raii_practice.cpp
+// 编译：g++ -std=c++17 -Wall raii_practice.cpp -o raii_practice
+
+#include <iostream>
+#include <mutex>
+#include <thread>
+#include <vector>
+#include <stdexcept>
+#include <chrono>
+
+// 练习1：实现一个ScopedTimer
+// 构造时记录开始时间
+// 析构时自动打印耗时和标签
+// 用法：
+// {
+//     ScopedTimer t("数据库查询");
+//     // 做一些操作
+// }  // 自动打印："数据库查询 耗时: XXX ms"
+class ScopedTimer {
+public:
+    ScopedTimer(const std::string& name)
+        : name_(name) {
+         start_ = std::chrono::high_resolution_clock::now();
+    }
+
+    ~ScopedTimer() {
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start_);
+        std::cout << name_ << ": " << duration.count() << " ms\n";
+    }
+
+private:
+    std::string name_;
+    std::chrono::time_point<std::chrono::high_resolution_clock> start_;
+};
+
+// 练习2：实现一个ScopedLock（不要用std::lock_guard，自己写一个）
+// 构造时lock，析构时unlock
+// 禁止拷贝
+class ScopedLock {
+public:
+    // 构造函数：传入mutex引用，然后lock它
+    ScopedLock(std::mutex& mtx) : mtx_(mtx) {
+        mtx_.lock();
+    }
+
+    // 析构函数：unlock
+    ~ScopedLock() {
+        mtx_.unlock();
+    }
+
+    // 禁止拷贝
+    ScopedLock(const ScopedLock&) = delete;
+    ScopedLock& operator=(const ScopedLock&) = delete;
+
+private:
+    std::mutex& mtx_;  // 注意是引用，不是值
+};
+
+// 练习3：实现一个线程安全的计数器
+// 用ScopedLock保护
+class SafeCounter {
+public:
+    void increment() {
+        // 用ScopedLock加锁
+        ScopedLock lock(mtx_);	// 你可以试着把ScopedLock去掉,能直观感受到数据竞争
+        count_++;
+    }
+
+    void decrement() {
+        // 用ScopedLock加锁
+        ScopedLock lock(mtx_);
+        count_--;
+    }
+
+    int get() const {
+        // 用ScopedLock加锁
+        ScopedLock lock(mtx_);
+        return count_;
+    }
+
+private:
+    mutable std::mutex mtx_;  // mutable：const函数里也能lock
+    int count_ = 0;
+};
+
+int main() {
+    // 测试ScopedTimer
+    {
+        ScopedTimer t("测试计时");
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }  // 应该打印：测试计时 耗时: 100 ms左右
+
+    // 测试SafeCounter线程安全
+    SafeCounter counter;
+    std::vector<std::thread> threads;
+
+    // 10个线程各increment 100000次
+    for (int i = 0; i < 10; i++) {
+        threads.emplace_back([&counter]() {
+            for (int j = 0; j < 100000; j++) {
+                counter.increment();
+            }
+        });
+    }
+
+    for (auto& t : threads) t.join();
+
+    // 如果线程安全，结果应该是1000000
+    std::cout << "最终计数: " << counter.get() << "\n";
+    // 不安全的话结果会小于1000000（数据竞争导致increment丢失）
+}
+```
+
+
+
+
+
+
+
 ### 第6天：多线程基础
 
 **目标：能写线程安全的代码**
+
+
+
+
+
+#### **std::thread基础**
+
+```cpp
+#include <thread>
+
+// 创建线程的几种方式
+void task() {
+    std::cout << "线程执行\n";
+}
+
+// 方式1：函数指针
+std::thread t1(task);
+
+// 方式2：lambda(最常用)
+std::thread t2([]{
+    std::cout << "lambda线程\n";
+});
+
+// lambda带参数
+std::thread t3([](int id, std::string name){
+    std::cout << "线程" << id << ": " << name << "\n";
+},1,"sensor");
+
+// join vs detach
+t1.join();		// 等待线程结束，主线程阻塞
+t2.detach();  	// 线程独立运行，主线程不等待
+
+// 注意：thread对象析构前必须join或detach
+// 否则程序崩溃
+```
+
+
+
+#### 数据竞争
+
+```cpp
+int count = 0;
+
+// count++不是原子操作，实际是三步：
+// 1. 读count到寄存器
+// 2. 寄存器+1
+// 3. 写回count
+
+// 两个线程同时执行：
+// 线程A读count=5
+// 线程B读count=5
+// 线程A写count=6
+// 线程B写count=6  ← 丢了一次increment
+```
+
+
+
+#### mutex用法
+
+mutex锁的是"代码段"
+
+谁拿到锁，谁才能执行锁里面的代码
+
+```cpp
+#include <mutex>
+
+std::mutex mtx;
+int count = 0;
+
+void increment() {
+    std::lock_guard<std::mutex> lock(mtx);  // 加锁
+    count++;
+}  // 自动解锁
+```
+
+
+
+**mutex的几个注意点：**
+
+
+
+1. 不能递归加锁(死锁)
+
+```cpp
+void bad() {
+    std::lock_guard<std::mutex> lock(mtx);
+    // 如果这里调用了另一个也lock同一个mtx的函数
+    // 死锁
+}
+```
+
+
+
+2. 锁的粒度要小
+
+```cpp
+void good(){
+    // 准备数据
+    auto data = prepareData();
+    
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        count++;	// 只锁真正需要保护的部分
+    }
+    
+    // 后续处理（不需要锁）
+    process(data);
+}
+```
+
+
+
+3. 加锁顺序要一致（多个mutex时）
+
+```cpp
+std::mutex mtx1, mtx2;
+
+void thread_a() {
+    std::lock_guard<std::mutex> l1(mtx1);  // 先锁1
+    std::lock_guard<std::mutex> l2(mtx2);  // 再锁2
+}
+
+void thread_b() {
+    std::lock_guard<std::mutex> l1(mtx1);  // 也是先锁1
+    std::lock_guard<std::mutex> l2(mtx2);  // 再锁2
+    // 顺序一致，不会死锁
+}
+```
+
+
+
+#### 线程间数据传递
+
+```cpp
+// 方式1：共享变量+mutex（你已经会了）
+
+// 方式2：lambda捕获
+int result = 0;
+std::thread t([&result]{
+   result = 42; 	// 通过引用写结果
+});
+t.join();
+
+// 方式3：std::future（异步获取返回值）
+#include <future>
+
+auto fut = std::async(std::launch::async, []{
+    return 42;	// 线程返回值
+});
+
+int val = fut.get();  // 阻塞等待结果
+std::cout << val << "\n";  // 42
+```
+
+
+
+#### 小练习
+
+```cpp
+// 文件名：thread_practice.cpp
+// 编译：g++ -std=c++17 -Wall -pthread thread_practice.cpp -o thread_practice
+
+#include <iostream>
+#include <thread>
+#include <mutex>
+#include <vector>
+#include <queue>
+#include <string>
+#include <chrono>
+
+// 练习：实现线程安全的消息队列
+// 这是ROS2节点内部通信的基础模型
+
+struct Message {
+    int id;
+    std::string data;
+};
+
+class MessageQueue {
+public:
+    // 1. push：往队列里放消息
+    //    加锁保护queue_
+    void push(const Message& msg) {
+        std::lock_guard<std::mutex> lock(mtx_);
+        queue_.push(msg);
+    }
+
+    // 2. pop：取出一条消息
+    //    队列为空时返回false
+    //    取到消息通过引用参数返回，返回true
+    bool pop(Message& msg) {
+        std::lock_guard<std::mutex> lock(mtx_);
+        if (queue_.empty())  return false;
+        msg = queue_.front();
+        queue_.pop();
+        return true;
+    }
+
+    // 3. size：返回队列长度
+    size_t size() const {
+        std::lock_guard<std::mutex> lock(mtx_);
+        return queue_.size();
+    }
+
+    // 4. empty：是否为空
+    bool empty() const {
+        std::lock_guard<std::mutex> lock(mtx_);
+        return queue_.empty();
+    }
+
+private:
+    std::queue<Message> queue_;
+    mutable std::mutex mtx_;
+};
+
+int main() {
+    MessageQueue mq;
+
+    // 生产者线程：往队列里放100条消息
+    std::thread producer([&mq]{
+        for (int i = 0; i < 100; i++) {
+            mq.push({i, "msg_" + std::to_string(i)});
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        std::cout << "生产者完成\n";
+    });
+
+    // 消费者线程：不断取消息处理
+    std::thread consumer([&mq]{
+        int count = 0;
+        while (count < 100) {
+            Message msg;
+            if (mq.pop(msg)) {
+                count++;
+                // 每10条打印一次
+                if (count % 10 == 0) {
+                    std::cout << "已消费: " << count
+                              << " 条，最新: " << msg.data << "\n";
+                }
+            }
+        }
+        std::cout << "消费者完成\n";
+    });
+
+    producer.join();
+    consumer.join();
+
+    std::cout << "队列剩余: " << mq.size() << "\n";
+}
+```
+
+有个缺陷：**消费者在队列为空时一直在空转**，疯狂调用`pop`返回false，浪费CPU。
+
+这就是明天要解决的问题，用条件变量让消费者在队列为空时挂起，有消息来了再唤醒。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2933,9 +3533,411 @@ int main() {
 
 
 
-### 第8天：原子操作 + 线程实战
+#### 为什么需要条件变量
+
+昨天的消费者有个问题：
+
+```cpp
+// 昨天的写法：忙等待
+while (count < 100) {
+    Message msg;
+    if (mq.pop(msg)) {  // 队列空时一直返回false
+        count++;
+    }
+    // 队列为空时CPU空转，浪费资源
+}
+```
+
+真实机器人系统里，传感器数据不是连续的，消费者大部分时间在等待，空转会把CPU跑满，其他线程就没资源了。
+
+
+
+#### 条件变量基础
+
+```cpp
+#include <condition_variable>
+
+std::mutex mtx;
+std::condition_variable cv;
+bool ready = false;
+
+// 等待方
+void waiter(){
+    std::unique_lock<std::mutex> lock(mtx);		// 必须用unique_lock
+    cv.wait(lock, []{ return ready; });			// 等待条件成立
+    
+    // 条件成立后继续执行
+    std::cout << "收到通知\n";
+}
+
+// 通知方
+void notifier(){
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        ready = true;
+    }
+    cv.notify_one();	// 唤醒一个等待线程
+    // cv.notify_all() 唤醒所有等待线程
+}
+```
+
+
+
+**wait内部发生了什么：**
+
+```cpp
+cv.wait(lock, []{ return ready; });
+
+// 等价于：
+while (!ready) {
+    // 1. 原子性地释放lock，挂起线程
+    // 2. 等待notify
+    // 3. 被唤醒后重新获取lock
+    // 4. 检查条件，不满足继续等
+}
+// 条件满足，带着lock继续执行
+```
+
+
+
+**为什么wait需要lambda条件：**
+
+```cpp
+// 虚假唤醒：线程可能在没有notify的情况下被唤醒
+// 这是操作系统层面的问题，POSIX标准允许这种情况
+
+// 没有条件判断：虚假唤醒就出bug
+cv.wait(lock);  // 危险
+
+// 有条件判断：虚假唤醒会重新检查条件，继续等
+cv.wait(lock, []{ return ready; });  // 安全
+```
+
+
+
+#### notify_one vs notify_all
+
+```cpp
+// notify_one：唤醒一个等待线程（随机选）
+// 适合：一个消息只需要一个消费者处理
+
+// notify_all：唤醒所有等待线程
+// 适合：状态变化需要通知所有线程
+//       比如系统关闭，所有线程都要退出
+
+// 机器人系统里的典型用法：
+// 传感器数据来了 → notify_one（一个处理线程就够）
+// 系统急停 → notify_all（所有线程都要响应）
+```
+
+
+
+#### 优雅关闭
+
+```cpp
+// 真实系统里队列需要支持关闭
+// 关闭后等待中的线程要能退出，不能永远卡着
+
+class MessageQueue{
+public:
+    void shutdown(){
+        {
+            std::lock_guard<std::mutex> lock(mtx_);
+            shutdown_ = true;	// 标记关闭
+        }
+        cv_.notify_all();		// 唤醒所有等待线程
+    }
+    
+    bool pop(Meesage& msg){
+        std::unique_lock<std::mutex> lock(mtx_);
+        cv_.wait(lock,[this]{
+           return !queue_.empty() || shutdown_; 	// 有消息或关闭都退出等待
+        });
+        
+        if(shutdown_ && queue.empty()) return false;	// 关闭且没消息
+        
+        msg = queue_.front();
+        queue_.pop();
+        return true;
+    }
+    
+private:
+    bool shutdown_ = false;
+};
+```
+
+
+
+#### 小练习
+
+```cpp
+// 文件名：condvar_practice.cpp
+// 编译：g++ -std=c++17 -Wall -pthread condvar_practice.cpp -o condvar_practice
+
+#include <iostream>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <queue>
+#include <string>
+#include <chrono>
+
+struct Message {
+    int id;
+    std::string data;
+};
+
+class MessageQueue {
+public:
+    // 1. push：放消息，放完notify_one唤醒等待的消费者
+    void push(const Message& msg) {
+        {
+            std::lock_guard<std::mutex> lock(mtx_);
+            queue_.push(msg);
+        }
+        cv_.notify_one();  // 放完锁再notify，性能更好
+    }
+
+    // 2. pop：队列为空时挂起等待，不再空转
+    //    返回false表示队列已关闭且为空
+    bool pop(Message& msg) {
+        std::unique_lock<std::mutex> lock(mtx_);
+        cv_.wait(lock, [this]{
+            return !queue_.empty() || shutdown_;
+        });
+
+        if (shutdown_ && queue_.empty()) return false;
+
+        msg = queue_.front();
+        queue_.pop();
+        return true;
+    }
+
+    // 3. shutdown：关闭队列，唤醒所有等待线程
+    void shutdown() {
+        {
+            std::lock_guard<std::mutex> lock(mtx_);
+            shutdown_ = true;
+        }
+        cv_.notify_all();
+    }
+
+    // 4. size
+    size_t size() const {
+        std::lock_guard<std::mutex> lock(mtx_);
+        return queue_.size();
+    }
+
+private:
+    std::queue<Message> queue_;
+    mutable std::mutex mtx_;
+    std::condition_variable cv_;
+    bool shutdown_ = false;
+};
+
+int main() {
+    MessageQueue mq;
+
+    // 生产者：放50条消息后关闭队列
+    std::thread producer([&mq]{
+        for (int i = 0; i < 50; i++) {
+            mq.push({i, "msg_" + std::to_string(i)});
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        std::cout << "生产者完成，关闭队列\n";
+        mq.shutdown();  // 关闭队列
+    });
+
+    // 消费者：pop返回false时退出
+    std::thread consumer([&mq]{
+        Message msg;
+        int count = 0;
+        while (mq.pop(msg)) {  // pop返回false自动退出循环
+            count++;
+            if (count % 10 == 0) {
+                std::cout << "已消费: " << count
+                          << " 条，最新: " << msg.data << "\n";
+            }
+        }
+        std::cout << "消费者退出，共消费: " << count << " 条\n";
+    });
+
+    producer.join();
+    consumer.join();
+
+    std::cout << "队列剩余: " << mq.size() << "\
+```
+
+
+
+
+
+
+
+### 第8天：原子操作 + 线程实战(TODO)
 
 **目标：知道atomic，复习前两天内容**
+
+
+
+#### 原子操作
+
+```cpp
+#include <atomic>
+
+// 普通int，多线程下不安全
+int count = 0;
+count++;  // 三步操作，非原子
+
+// atomic<int>，多线程下安全
+std::atomic<int> atomic_count = 0;
+atomic_count++;  // 原子操作，一步完成
+
+// 常用操作
+atomic_count.load();           // 读取值
+atomic_count.store(10);        // 写入值
+atomic_count.fetch_add(1);     // +1，返回旧值
+atomic_count.fetch_sub(1);     // -1，返回旧值
+atomic_count.exchange(5);      // 写入新值，返回旧值
+
+// compare_exchange：CAS操作
+int expected = 5;
+bool ok = atomic_count.compare_exchange_strong(expected, 10);
+// 如果atomic_count==expected，则写入10，返回true
+// 如果atomic_count!=expected，则把当前值写入expected，返回false
+```
+
+
+
+**什么时候用atomic，什么时候用mutex：**
+
+```cpp
+// 用atomic：
+// 简单的计数器、标志位、状态码
+// 单个变量的读写
+std::atomic<bool> running = true;
+std::atomic<int> error_count = 0;
+
+// 用mutex：
+// 多个变量需要同时保护
+// 复杂数据结构（queue、map）
+// 需要保证一段代码的原子性
+std::mutex mtx;
+// 同时更新多个变量
+{
+    std::lock_guard<std::mutex> lock(mtx);
+    count++;
+    last_update = now();	// 这两个操作要同时保护
+}
+```
+
+
+
+**memory_order（了解概念就行）：**
+
+```cpp
+// atomic操作默认是memory_order_seq_cst（顺序一致）
+// 最安全但最慢
+
+// 性能敏感场景可以用relaxed
+atomic_count.fetch_add(1, std::memory_order_relaxed);
+// 只保证原子性，不保证顺序
+// 适合纯计数器，不需要和其他变量同步
+
+// 实际工程里默认就好，不要过早优化
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
