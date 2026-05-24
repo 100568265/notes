@@ -3774,7 +3774,7 @@ int main() {
 
 
 
-### 第8天：原子操作 + 线程实战(TODO)
+### 第8天：原子操作 + 线程实战
 
 **目标：知道atomic，复习前两天内容**
 
@@ -3855,85 +3855,233 @@ atomic_count.fetch_add(1, std::memory_order_relaxed);
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+#### 小练习
+
+```cpp
+// 文件名：serial_simulator.cpp
+// 编译：g++ -std=c++17 -Wall -pthread serial_simulator.cpp -o serial_simulator
+
+#include <iostream>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <queue>
+#include <atomic>
+#include <string>
+#include <chrono>
+#include <vector>
+#include <functional>
+#include <random>
+
+// 模拟串口帧
+struct Frame {
+    uint8_t start = 0xAA;      // 起始符
+    uint8_t id;                 // 帧ID
+    std::string data;           // 数据
+    uint8_t checksum;           // 校验和
+
+    // 计算校验和
+    uint8_t calcChecksum() const {
+        uint8_t sum = 0;
+        for (char c : data) sum += c;
+        return sum;
+    }
+
+    bool isValid() const {
+        return start == 0xAA && checksum == calcChecksum();
+    }
+};
+
+// 线程安全队列（直接用第七天的成果）
+template<typename T>
+class SafeQueue {
+public:
+    void push(const T& item) {
+        {
+            std::lock_guard<std::mutex> lock(mtx_);
+            queue_.push(item);
+        }
+        cv_.notify_one();
+    }
+
+    bool pop(T& item) {
+        std::unique_lock<std::mutex> lock(mtx_);
+        cv_.wait(lock, [this]{
+            return !queue_.empty() || shutdown_;
+        });
+        if (shutdown_ && queue_.empty()) return false;
+        item = queue_.front();
+        queue_.pop();
+        return true;
+    }
+
+    void shutdown() {
+        {
+            std::lock_guard<std::mutex> lock(mtx_);
+            shutdown_ = true;
+        }
+        cv_.notify_all();
+    }
+
+    size_t size() const {
+        std::lock_guard<std::mutex> lock(mtx_);
+        return queue_.size();
+    }
+
+private:
+    std::queue<T> queue_;
+    mutable std::mutex mtx_;
+    std::condition_variable cv_;
+    bool shutdown_ = false;
+};
+
+// 串口模拟器
+class SerialSimulator {
+public:
+    SerialSimulator() : running_(false) {}
+
+    ~SerialSimulator() {
+        stop();
+    }
+
+    // 禁止拷贝
+    SerialSimulator(const SerialSimulator&) = delete;
+    SerialSimulator& operator=(const SerialSimulator&) = delete;
+
+    // 注册帧接收回调
+    void onFrameReceived(std::function<void(const Frame&)> cb) {
+        callback_ = cb;
+    }
+
+    // 启动收发线程
+    void start() {
+        running_ = true;
+        recv_thread_ = std::thread(&SerialSimulator::recvLoop, this);
+        send_thread_ = std::thread(&SerialSimulator::sendLoop, this);
+        stats_thread_ = std::thread(&SerialSimulator::statsLoop, this);
+    }
+
+    // 停止
+    void stop() {
+        if (!running_) return;
+        running_ = false;
+        send_queue_.shutdown();
+        recv_queue_.shutdown();
+        if (recv_thread_.joinable()) recv_thread_.join();
+        if (send_thread_.joinable()) send_thread_.join();
+        if (stats_thread_.joinable()) stats_thread_.join();
+    }
+
+    // 发送帧
+    void sendFrame(const Frame& frame) {
+        send_queue_.push(frame);
+        ++send_total_;
+    }
+
+    // 打印统计
+    void printStats() const {
+        std::cout << "发送总数: " << send_total_.load()
+                  << " 接收总数: " << recv_total_.load()
+                  << " 校验失败: " << checksum_errors_.load()
+                  << "\n";
+    }
+
+private:
+    // 接收线程：模拟从串口收数据
+    // 1. 从recv_queue_取帧
+    // 2. 校验帧（isValid）
+    //    校验失败：checksum_errors_++，打印警告，跳过
+    //    校验成功：recv_total_++，调用callback_
+    void recvLoop() {
+        while (running_) {
+            Frame frame;
+            auto ok = recv_queue_.pop(frame);
+            if (!ok) break;
+            if (frame.isValid()) {
+                ++recv_total_;
+                callback_(frame);
+            } else {
+                checksum_errors_++;
+                std::cout << "校验失败" << frame.id << std::endl;
+            }
+        }
+    }
+
+    // 发送线程：模拟往串口写数据
+    // 1. 从send_queue_取帧
+    // 2. 模拟发送延迟（sleep 1-5ms随机）
+    // 3. 模拟10%概率丢包（丢包就不放入recv_queue_）
+    // 4. 正常帧放入recv_queue_
+    void sendLoop() {
+        // 你来实现
+        // 随机数生成：
+        std::mt19937 rng(std::random_device{}());
+        std::uniform_int_distribution<> delay(1, 5);   // 1-5ms延迟
+        std::uniform_int_distribution<> drop(1, 10);   // 1-10，<=1就丢包
+        while (running_) {
+            Frame frame;
+            auto ok = send_queue_.pop(frame);
+            if (!ok) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(delay(rng)));
+            if (drop(rng) > 1) {
+                recv_queue_.push(frame);
+            }
+        }
+    }
+
+    // 统计线程：每2秒打印一次统计信息
+    void statsLoop() {
+        while (running_) {
+            printStats();
+            std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+        }
+    }
+
+    SafeQueue<Frame> send_queue_;
+    SafeQueue<Frame> recv_queue_;
+
+    std::atomic<int> send_total_{0};
+    std::atomic<int> recv_total_{0};
+    std::atomic<int> checksum_errors_{0};
+
+    std::atomic<bool> running_;
+    std::thread recv_thread_;
+    std::thread send_thread_;
+    std::thread stats_thread_;
+
+    std::function<void(const Frame&)> callback_;
+};
+
+int main() {
+    SerialSimulator sim;
+
+    // 注册回调
+    sim.onFrameReceived([](const Frame& f) {
+        // 每20帧打印一次
+        if (f.id % 20 == 0) {
+            std::cout << "收到帧 id=" << (int)f.id
+                      << " data=" << f.data << "\n";
+        }
+    });
+
+    sim.start();
+
+    // 发送100个帧
+    for (int i = 0; i < 100; i++) {
+        Frame f;
+        f.id = i;
+        f.data = "sensor_" + std::to_string(i);
+        f.checksum = f.calcChecksum();
+        sim.sendFrame(f);
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    // 等待处理完成
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    sim.stop();
+    sim.printStats();
+}
+```
 
 
 
@@ -3947,9 +4095,403 @@ atomic_count.fetch_add(1, std::memory_order_relaxed);
 
 
 
+#### 最简单的CMakeLists.txt
+
+```cmake
+# CMakeLists.txt
+
+# 最低CMake版本要求
+cmake_minimum_required(VERSION 3.14)
+
+# 项目名和语言
+project(SerialSimulator CXX)
+
+# C++标准
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# 编译警告
+add_compile_options(-Wall -Wextra)
+
+# 生成可执行文件
+# add_executable(目标名 源文件...)
+add_executable(serial_sim
+    src/main.cpp
+    src/serial.cpp
+)
+
+# 链接库
+# target_link_libraries(目标名 库名...)
+target_link_libraries(serial_sim
+    pthread    # Linux线程库
+)
+
+# 头文件搜索路径
+target_include_directories(serial_sim
+    PRIVATE include/  # PRIVATE：只有serial_sim自己用
+)
+```
+
+
+
+
+
+#### 静态库和动态库
+
+```cmake
+# 静态库：编译时打包进可执行文件
+add_library(serial_lib STATIC
+    src/serial_port.cpp
+    src/frame_parser.cpp
+)
+
+target_include_directories(serial_lib
+    PUBLIC include/   # PUBLIC：serial_lib和链接它的目标都能用
+)
+
+# 可执行文件链接静态库
+add_executable(myapp src/main.cpp)
+target_link_libraries(myapp serial_lib)
+# 不需要再指定include路径，因为serial_lib是PUBLIC
+```
+
+
+
+**PRIVATE vs PUBLIC vs INTERFACE：**
+
+```cmake
+# PRIVATE：只有当前目标用
+target_include_directories(mylib PRIVATE src/)
+
+# PUBLIC：当前目标和链接它的目标都用
+target_include_directories(mylib PUBLIC include/)
+
+# INTERFACE：只有链接它的目标用，自己不用
+# （header-only库用这个）
+target_include_directories(mylib INTERFACE include/)
+```
+
+
+
+
+
+#### 常用CMake变量和命令
+
+```cmake
+# 常用变量
+message(STATUS "编译类型: ${CMAKE_BUILD_TYPE}")
+message(STATUS "源码目录: ${CMAKE_SOURCE_DIR}")
+message(STATUS "构建目录: ${CMAKE_BINARY_DIR}")
+
+# Debug vs Release
+# cmake .. -DCMAKE_BUILD_TYPE=Release
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_compile_options(-g -O0)  # 调试信息，不优化
+else()
+    add_compile_options(-O2)     # 优化
+endif()
+
+# 查找系统库
+find_package(Threads REQUIRED)
+target_link_libraries(myapp Threads::Threads)
+# 比直接写pthread更跨平台
+```
+
+
+
+
+
 ### 第10天：Lambda + 函数式
 
 **目标：熟练用lambda，这是ROS2回调函数的基础**
+
+
+
+
+
+#### Lambda基础语法
+
+```cpp
+// 完整语法
+[capture](parameters) -> return_type{
+    body
+};
+
+// 最简单的lambda
+auto f = []{ std::cout << "hello\n"; };
+f();	// 调用
+
+// 带参数
+auto add = [](int a, int b) { return a + b; }
+int result = add(1,2);
+
+// 返回类型通常可以省略，编译器自动推导
+auto mul = [](int a, int b) -> int {return a * b; };
+```
+
+
+
+#### 捕获方式
+
+```cpp
+int x = 10;
+std::string name = "sensor";
+
+// 值捕获：拷贝一份，lambda内部修改不影响外部
+auto f1 = [x]{ std::cout << x << "\n"; };
+x = 20;
+f1();  // 打印10，不是20，捕获时拷贝的
+
+// 引用捕获：直接引用外部变量
+auto f2 = [&x]{ std::cout << x << "\n"; };
+x = 20;
+f2();  // 打印20，引用的是同一个x
+
+// 捕获所有：值捕获
+auto f3 = [=]{ std::cout << x << " " << name << "\n"; };
+
+// 捕获所有：引用捕获
+auto f4 = [&]{ x = 100; };  // 可以修改外部变量
+
+// 混合捕获
+auto f5 = [=, &x]{ x = 100; };  // 其他变量值捕获，x引用捕获
+
+// 捕获this（类成员函数里用）
+class Device{
+  int id_ = 1;
+    void example(){
+        auto f = [this]{ std::cout << id_ << "\n"; };  // 访问成员变量
+        auto f2 = [this]{ id_ = 2; };  // 修改成员变量
+    }
+};
+```
+
+
+
+**捕获的坑**
+
+```cpp
+// 引用捕获要注意生命周期
+std::function<void()> createLambda() {
+    int local = 42;
+    return [&local]{ std::cout << local; };  // 危险！
+    // local在函数返回后析构
+    // lambda里的引用变成悬空引用
+}
+
+// 正确写法：值捕获
+std::function<void()> createLambda() {
+    int local = 42;
+    return [local]{ std::cout << local; };  // 安全，拷贝了一份
+}
+```
+
+
+
+#### std::function
+
+```cpp
+#include <functional>
+
+// std::function：可以存任何callable
+// std::function<返回类型(参数类型...)>
+
+std::function<void()> f1 = []{ std::cout << "hello\n"; };
+std::function<int(int, int)> f2 = [](int a, int b){ return a + b; };
+
+// 存普通函数
+void myFunc(){ std::cout << "func\n"; }
+std::function<void()> f2 = myFunc;
+
+// 存成员函数（需要bind或lambda包装）
+class Device{
+public:
+    void onData(int data){ std::cout << data << "\n"; };
+};
+
+Device d;
+std::function<void(int)> f4 = [&d](int data){ d.onData(data); };
+
+// 判断是否有效
+if(f1){ f1(); }		// 有效才调用，避免崩溃
+```
+
+
+
+#### 实际用途
+
+```cpp
+// 1. 回调函数
+sim.onFrameReceived([](const Frame& f){
+   // 处理帧 
+});
+
+// 2.排序自定义比较
+std::vector<Frame> frames;
+std::sort(frames.begin(), frames.end(),
+          [](const Frame& a, const Frame& b){
+              return a.id < b.id;	// 按id升序
+          });
+
+// 3.STL算法
+std::vector<int> nums = {1,2,3,4,5};
+
+// find_if：找第一个满足条件的
+auto it = std::find_if(nums.begin(), nums.end(),
+                       [](int n){ return n > 3; });		// it指向4
+
+// remove_if + erase：删除满足条件的元素
+nums.erase(
+    std::remove_if(nums.begin(), nums.end(),
+        [](int n){ return n % 2 == 0; }),  // 删除偶数
+    nums.end()
+);
+
+// for_each：对每个元素执行操作
+std::for_each(nums.begin(), nums.end(), [](int& n){ n*=2; });
+```
+
+
+
+#### 小练习
+
+```cpp
+// 文件名：lambda_practice.cpp
+// 编译：g++ -std=c++17 -Wall lambda_practice.cpp -o lambda_practice
+
+#include <iostream>
+#include <functional>
+#include <utility>
+#include <vector>
+#include <map>
+#include <algorithm>
+#include <string>
+
+// 传感器数据
+struct SensorData {
+    std::string sensor_id;
+    double value;
+    bool valid;
+};
+
+// 练习1：实现一个事件系统
+// 支持注册多个回调，触发时全部调用
+class EventBus {
+public:
+    using Handler = std::function<void(const SensorData&)>;
+
+    // 注册回调，返回一个id用于注销
+    int subscribe(Handler handler) {
+        // 你来实现
+        // 把handler存入handlers_
+        // 返回一个唯一id
+        int id = next_id_++;  // 先取值再++，一行搞定
+        handlers_[id] = std::move(handler);
+        return id;
+    }
+
+    // 注销回调
+    void unsubscribe(int id) {
+        handlers_.erase(id);
+    }
+
+    // 触发事件，调用所有注册的回调
+    void publish(const SensorData& data) {
+        for (auto &handler : handlers_) {
+            handler.second(data);
+        }
+    }
+
+private:
+    std::map<int, Handler> handlers_;
+    int next_id_ = 0;
+};
+
+// 练习2：实现这几个函数，全部用lambda+STL算法，不许用for循环
+
+// 过滤无效数据
+std::vector<SensorData> filterValid(const std::vector<SensorData>& data) {
+    // 用remove_if或copy_if
+    // 你来实现
+    std::vector<SensorData> result;
+    std::copy_if(data.begin(), data.end(),
+        std::back_inserter(result),
+        [](const SensorData &item){ return item.valid; });
+    return result;
+}
+
+// 找到value最大的传感器
+SensorData findMax(const std::vector<SensorData>& data) {
+    // 用max_element
+    // 你来实现
+    auto it = std::max_element(data.begin(), data.end(),
+        [](const SensorData& a, const SensorData& b) {
+            return a.value < b.value;   // 比较器：a比b小时返回true
+        });
+    return *it;
+}
+
+// 所有value乘以一个系数（原地修改）
+void scale(std::vector<SensorData>& data, double factor) {
+    // 用for_each
+    // 你来实现
+    std::for_each(data.begin(), data.end(),[factor](SensorData& data) { data.value *= factor; });
+}
+
+// 按value从大到小排序
+void sortByValue(std::vector<SensorData>& data) {
+    // 用sort
+    // 你来实现
+    std::sort(data.begin(), data.end(),
+        [](const SensorData& a, const SensorData& b){ return a.value > b.value; });
+}
+
+int main() {
+    // 测试EventBus
+    EventBus bus;
+
+    int id1 = bus.subscribe([](const SensorData& d){
+        std::cout << "Subscriber1: " << d.sensor_id
+                  << " = " << d.value << "\n";
+    });
+
+    int id2 = bus.subscribe([](const SensorData& d){
+        if (d.value > 50) {
+            std::cout << "Subscriber2 alarm: " << d.sensor_id
+                      << " overlimit!\n";
+        }
+    });
+
+    bus.publish({"lidar_01", 30.5, true});
+    bus.publish({"imu_01", 75.2, true});
+
+    bus.unsubscribe(id1);
+    bus.publish({"camera_01", 60.0, true});  // 只有订阅者2收到
+
+    // 测试STL算法函数
+    std::vector<SensorData> sensors = {
+        {"lidar_01", 30.5, true},
+        {"imu_01", 75.2, true},
+        {"camera_01", 0.0, false},
+        {"ultrasonic", 45.8, true},
+        {"camera_02", 0.0, false},
+    };
+
+    auto valid = filterValid(sensors);
+    std::cout << "valid sensors count: " << valid.size() << "\n";  // 3
+
+    auto max_sensor = findMax(valid);
+    std::cout << "max sensor: " << max_sensor.sensor_id
+              << " = " << max_sensor.value << "\n";  // imu_01 75.2
+
+    scale(valid, 2.0);
+    sortByValue(valid);
+    std::cout << "last one sorted: " << valid[0].sensor_id
+              << " = " << valid[0].value << "\n";  // imu_01 150.4
+}
+```
+
+
 
 
 
@@ -3959,7 +4501,323 @@ atomic_count.fetch_add(1, std::memory_order_relaxed);
 
 
 
-### 第12天：设计模式
+**为什么需要模板**
+
+```cpp
+// 没有模板：同样的逻辑写N遍
+int maxInt(int a, int b) { return a > b ? a : b; }
+double maxDouble(double a, double b) { return a > b ? a : b; }
+std::string maxString(std::string a, std::string b) { return a > b ? a : b; }
+
+// 有模板：写一次，支持所有类型
+template<typename T>
+T max(T a, T b) { return a > b ? a : b; }
+
+max(1, 2);          // T=int
+max(1.0, 2.0);      // T=double
+max("a", "b");      // T=const char*
+```
+
+
+
+
+
+#### 函数模板
+
+```cpp
+// 基础语法
+template<typename T>
+T add(T a, T b){
+    return a + b;
+}
+
+// 多个类型参数
+template<typename T, typename U>
+auto add(T a, U b) -> decltype(a + b){
+    return a + b;
+}
+add(1, 2.5);	// T=int, U=double, 返回double
+```
+
+
+
+#### 类模板
+
+```cpp
+template<typename T>
+class Stack{
+public:
+    void push(const T& val){
+        data_.push_back(val);
+    }
+    
+    T pop(){
+        T val = data_.back();
+        data_.pop_back();
+        return val;
+    }
+    
+    T& top() { return data_.back(); }
+    bool empty() const { return data_.empty(); }
+    size_t size() const { return data_.size(); }
+    
+private:
+    std::vector<T> data_;
+};
+
+// 使用
+Stack<int> s;
+s.push(1);
+s.push(2);
+s.pop();  // 返回2
+
+// 模板类的特化：对特定类型提供不同实现
+template<>
+class Stack<bool> {
+    // bool类型特化，用位运算节省内存
+    // 了解即可，实际很少手写
+};
+```
+
+
+
+**模板与继承结合**
+
+```cpp
+// 模板基类：定义接口
+template<typename T>
+class Sensor {
+public:
+    virtual T read() = 0;
+    virtual bool isValid() const = 0;
+    virtual ~Sensor() = default;
+};
+
+// 具体实现
+class Lidar : public Sensor<double> {
+public:
+    double read() override { return 3.14; }
+    bool isValid() const override { return true; }
+};
+
+class IMU : public Sensor<std::array<double, 3>> {
+public:
+    std::array<double, 3> read() override { return {1.0, 2.0, 3.0}; }
+    bool isValid() const override { return true; }
+};
+```
+
+
+
+**常用模板工具**
+
+```cpp
+#include <type_traits>
+
+// 编译期类型判断（了解，能看懂就行）
+template<typename T>
+void process(T val) {
+    if constexpr (std::is_integral_v<T>) {
+        std::cout << "整数: " << val << "\n";
+    } else if constexpr (std::is_floating_point_v<T>) {
+        std::cout << "浮点: " << val << "\n";
+    } else {
+        std::cout << "其他类型\n";
+    }
+}
+
+process(42);     // 整数
+process(3.14);   // 浮点
+process("str");  // 其他类型
+
+// std::enable_if：条件编译（了解，见到能看懂）
+template<typename T,
+    typename = std::enable_if_t<std::is_arithmetic_v<T>>>
+T square(T x) { return x * x; }
+// 只有算术类型才能用这个函数
+```
+
+
+
+#### 小练习
+
+```cpp
+// 文件名：template.cpp
+// 编译：g++ -std=c++17 -Wall -pthread template.cpp -o template_practice
+
+#include <iostream>
+#include <vector>
+#include <queue>
+#include <memory>
+#include <string>
+#include <type_traits>
+#include <mutex>
+#include <condition_variable>
+
+
+// 练习1：实现一个通用的Result<T>模板类
+// 类似Rust的Result，表示一个可能失败的操作结果
+// 要么持有一个值T，要么持有一个错误信息string
+template<typename T>
+class Result {
+public:
+    // 成功：持有值
+    static Result<T> ok(const T& val) {
+        // 你来实现
+        Result result;
+        result.value_ = val;
+        result.success_ = true;
+        return result;
+    }
+
+    // 失败：持有错误信息
+    static Result<T> err(const std::string& msg) {
+        // 你来实现
+        Result result;
+        result.error_ = msg;
+        result.success_ = false;
+        return result;
+    }
+
+    // 是否成功
+    bool isOk() const {
+        // 你来实现
+        return success_;
+    }
+
+    // 获取值（失败时抛异常或返回默认值）
+    const T& value() const {
+        // 你来实现
+        // isOk()为false时抛std::runtime_error
+        if(!success_){
+            throw std::runtime_error(error_);
+        }
+        return value_;
+    }
+
+    // 获取错误信息
+    const std::string& error() const {
+        // 你来实现
+        return error_;
+    }
+
+private:
+    // 你来设计成员变量
+    // 提示：bool success_ + T value_ + string error_
+    bool success_;
+    T value_;
+    std::string error_;
+};
+
+// 练习2：把昨天的SafeQueue改成模板类
+// 已经是模板了，这次加一个功能：
+// 支持最大容量限制，push时队列满了返回false
+template<typename T>
+class BoundedQueue {
+public:
+    explicit BoundedQueue(size_t max_size) : max_size_(max_size) {}
+
+    // push：队列满了返回false，否则入队返回true
+    bool push(const T& item) {
+        // 你来实现
+        std::lock_guard<std::mutex> lock(mtx_);
+        if(queue_.size() == max_size_) return false;
+
+        queue_.push(item);
+        return true;
+    }
+
+    // pop：和之前一样
+    bool pop(T& item) {
+        // 你来实现
+        std::lock_guard<std::mutex> lock(mtx_);
+        if(!queue_.size()) return false;
+        item = queue_.front();
+        queue_.pop();
+        return true;
+    }
+
+    void shutdown() {
+        // 你来实现
+        {
+            std::lock_guard<std::mutex> lock(mtx_);
+            shutdown_ = true;
+        }
+        cv_.notify_all();
+        
+    }
+
+    size_t size() const {
+        // 你来实现
+        return queue_.size();
+    }
+
+private:
+    std::queue<T> queue_;
+    size_t max_size_;
+    mutable std::mutex mtx_;
+    std::condition_variable cv_;
+    bool shutdown_ = false;
+};
+
+// 练习3：实现这个模板函数
+// 对vector里的每个元素应用函数，返回新vector
+// 类似Python的map()
+template<typename T, typename F>
+auto transform(const std::vector<T>& input, F func)
+    -> std::vector<decltype(func(input[0]))>
+{
+    // 你来实现
+    // 用std::transform或for循环都行
+    // std::vector<T> new_vec;
+    std::vector<decltype(func(input[0]))> new_vec;  // func可能改变类型
+    for(auto it = input.begin(); it != input.end(); ++it){
+        auto item = func(*it);
+        new_vec.push_back(item);
+    }
+    return new_vec;
+}
+
+int main() {
+    // 测试Result
+    auto r1 = Result<int>::ok(42);
+    auto r2 = Result<int>::err("设备未连接");
+
+    if (r1.isOk()) {
+        std::cout << "r1值: " << r1.value() << "\n";  // 42
+    }
+    if (!r2.isOk()) {
+        std::cout << "r2错误: " << r2.error() << "\n";  // 设备未连接
+    }
+
+    // 测试BoundedQueue
+    BoundedQueue<int> bq(3);  // 最多3个元素
+    std::cout << bq.push(1) << "\n";  // 1（成功）
+    std::cout << bq.push(2) << "\n";  // 1
+    std::cout << bq.push(3) << "\n";  // 1
+    std::cout << bq.push(4) << "\n";  // 0（队列满）
+
+    // 测试transform
+    std::vector<int> nums = {1, 2, 3, 4, 5};
+    auto doubled = transform(nums, [](int x){ return x * 2; });
+    for (int x : doubled) std::cout << x << " ";  // 2 4 6 8 10
+    std::cout << "\n";
+
+    auto strs = transform(nums, [](int x){ return std::to_string(x); });
+    for (auto& s : strs) std::cout << s << " ";  // 1 2 3 4 5
+    std::cout << "\n";
+}
+```
+
+
+
+
+
+
+
+
+
+### 第12天：设计模式(TODO)
 
 **目标：掌握机器人系统岗最常用的三个模式(单例模式 观察者模式 工厂模式)**
 
