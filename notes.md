@@ -8845,347 +8845,839 @@ socat -d -d pty,raw,echo=0 pty,raw,echo=0
 
 
 
-## 第三阶段：ROS2
+## 第三阶段：ROS2 
+
+> **硬件**：Raspberry Pi 5 + Yahboom Raspbot V2（麦轮 + 4×TT 电机、驱动板 I2C 0x2B、超声波、4 路循迹、2DOF 摄像头云台、OLED、RGB 灯条、蜂鸣器）。
+> **环境**：Ubuntu 24.04 + ROS2 Jazzy
+> **目标岗位**：机器人系统工程师（Pudu / ORION STAR / Yunjing / AgileX，长期 Unitree）
+> **节奏**：按里程碑走，不锁日历。预计 14–16 周 @ ~4h/天。
+
+---
 
 
 
-### 第1-3天：环境搭建+基础概念
+### 项目概览
 
-第1天：
 
-- Ubuntu 22.04安装（虚拟机或树莓派）
-- ROS2 Humble安装
-- `colcon build`第一个包
-- 理解工作空间结构：`src` / `build` / `install`
 
-第2天：核心概念
+#### O、硬件边界
+
+##### **0x2B 驱动板寄存器协议（从官方 Python 库逆出，这是你的"协议规格书"）**
+
+总线：I2C bus 1，地址 `0x2B`。全部为寄存器读写。
+
+**写（命令）**
+
+| reg  | 功能         | 数据字节               | 备注                                               |
+| ---- | ------------ | ---------------------- | -------------------------------------------------- |
+| 0x01 | 电机         | [motor_id, dir, speed] | id 0=L1 1=L2 2=R1 3=R2；dir 0=前 1=后；speed 0–255 |
+| 0x02 | 舵机         | [id, angle]            | 云台 id 1/2；angle 0–180；id2 上限 110             |
+| 0x03 | RGB 全部     | [state, color]         | state 0/1；color 0–6                               |
+| 0x04 | RGB 单个     | [number, state, color] |                                                    |
+| 0x08 | RGB 亮度全部 | [R, G, B]              | 0–255                                              |
+| 0x09 | RGB 亮度单个 | [number, R, G, B]      |                                                    |
+| 0x05 | 红外遥控开关 | [state]                | 读 0x0c 前先开                                     |
+| 0x06 | 蜂鸣器       | [state]                | M12 FAULT 报警用                                   |
+| 0x07 | 超声波开关   | [state]                | 读 0x1a/0x1b 前先开                                |
+
+**读（传感器）**
+
+| reg         | 功能           | 返回      | 解析                                          |
+| ----------- | -------------- | --------- | --------------------------------------------- |
+| 0x0a        | 四路循迹       | 1 字节    | x1=(v>>3)&1, x2=(v>>2)&1, x3=(v>>1)&1, x4=v&1 |
+| 0x1a / 0x1b | 超声距离 低/高 | 各 1 字节 | dist_mm = (0x1b<<8) \| 0x1a（先开 0x07）      |
+| 0x0c        | 红外遥控值     | 1 字节    | 先开 0x05                                     |
+
+
+
+##### 真车 vs 仿真分工（已锁定）
+
+**关键事实**：0x2B 板不读编码器，4×TT 电机无霍尔。**真车开环，无轮速反馈。** 麦轮本身打滑严重，即便有编码器轮式里程计也不可靠——所以专业麦轮平台都靠雷达/IMU 定位，你"没编码器"的损失远小于差速车。
+
+| 能力           | 真车                                           | 仿真(Gazebo)                  |
+| -------------- | ---------------------------------------------- | ----------------------------- |
+| 电机控制       | ✅ 开环 PWM (0x01)                              | ✅ 理想关节                    |
+| 速度闭环 PID   | ❌ 无反馈 → 前馈标定                            | ✅                             |
+| 轮式里程计     | ⚠️ 只能指令式（积分下发 Twist，质量差，需标注） | ✅ 真轮速积分                  |
+| ros2_control   | ⚠️ 薄开环写接口（state 仅回显 command）         | ✅ 完整（状态反馈 + 控制器链） |
+| 超声避障       | ✅ (0x07 / 0x1a-1b)                             | ✅                             |
+| 四路循迹       | ✅ (0x0a)                                       | ✅（可仿）                     |
+| 视觉           | ✅ USB 相机 + 2DOF 云台 (0x02)                  | ✅ 仿真相机                    |
+| IMU + EKF 融合 | 🛒 买 IMU 后 ✅                                  | ✅                             |
+| SLAM + Nav2    | 🛒 买雷达后 ✅                                   | ✅                             |
+
+**策略**：Gazebo 是"完整系统的家"——闭环控制、真里程计、EKF、SLAM、Nav2 整套在仿真跑（传感器全理想）；真车跑硬件支持的子集 + 买来的雷达/IMU。这就是工业界 sim-first 开发，本身是个能讲的工程判断。
+
+
+
+##### 采购清单
+
+1. **2D 激光雷达（必买，第一优先）**：LD19 / LDROBOT D300（~¥300–500）或 RPLIDAR A1（~¥500–700），均有现成 ROS2 驱动。**唯一能让真车跑 SLAM + Nav2** 的件，也是补"无编码器→无里程计"定位缺口的正解。对 Pudu/Yunjing 是 25k 硬通货。
+2. **IMU 模块（建议买，第二）**：Yahboom 9 轴（I2C/UART，支持 ROS2）~¥100–200。解锁真车 EKF 融合，至少把航向 yaw 做稳，补偿无轮速。你的 I2C/串口驱动正好都能接。
+3. **编码器改装（不建议）**：0x2B 板不读编码器，要做得换带霍尔电机 + 换驱动板，改动大；麦轮打滑让轮式里程计本就不可靠。雷达才是定位正解。想体验正交解码可选"外置编码器 + Pi GPIO 中断"，接你 GPIO 底子，但优先级最低。
+
+**不用换车。** Raspbot + 雷达 + IMU + "自己写驱动"的价值，比直接买带 odometry 的 ROSMASTER 更能讲故事。
+
+---
+
+
+
+#### 一、最终节点图
 
 ```
-Topic    发布订阅  异步  传感器数据
-Service  请求响应  同步  查询/控制
-Action   长任务    异步+反馈  导航/机械臂
-Param    运行时配置
+                      camera_node ┄/image┄┐    imu_node ──/imu──┐  [买IMU]
+ultrasonic_node ─/range─┐                 ┊                      ↓
+(I2C 0x2B)              ↓                  ┊            ekf_node (robot_localization)
+tracking_node ─/line──→ behavior_manager  ┊                      │ map→odom→base_link
+(I2C 0x2B)              (Lifecycle FSM)←监控┘                      ↓
+                        │ /cmd_vel                          Nav2 stack   [买雷达]
+                        ↓                              (slam_toolbox/amcl/planner/controller/BT)
+                  chassis_driver ───→ health_monitor          │ /cmd_vel(导航)
+                  (ros2_control, I2C HAL) (诊断/看门狗/soak)    ↓
+                        │ /odom(指令式) + TF                [仲裁] → chassis
+                        ↓
+                  odom→base_link
 ```
 
-第3天：
+**设计原则贯穿**：单一责任、硬件解耦、sim/real 一套代码、可靠性优先。
 
-- 用C++写第一个发布者/订阅者
-- 自定义消息类型（`.msg`文件）
-- `ros2 topic list/echo/hz`命令
-
-------
+---
 
 
 
-### 第4-6天：C++节点开发
+#### 二、项目大纲
 
-第4天：
+| #    | 里程碑                               | 引入的新概念                                 | 估时    |
+| ---- | ------------------------------------ | -------------------------------------------- | ------- |
+| M0   | 工作空间 + 工程底盘                  | colcon / ament / rosdep / .repos / overlay   | 2–3 天  |
+| M1   | 发布订阅 + 自定义消息                | topic / 回调 / .msg / 时间戳 / 日志          | 3 天    |
+| M2   | QoS 与 DDS                           | QoS 策略 / Fast-DDS / 发现 / RMW             | 4 天    |
+| M3   | Service + Action                     | srv / action / goal-feedback-result          | 4 天    |
+| M4   | C++ HAL 移植 + chassis_driver        | I2C 协议移植 / Twist / 麦轮解算              | 5–6 天  |
+| M5   | 里程计 + TF + 帧约定                 | tf2 / Odometry / REP-103/105                 | 4 天    |
+| M6   | URDF + RViz + Foxglove               | URDF / robot_state_publisher / 观测          | 4 天    |
+| M7   | IMU + EKF 融合 🛒                     | robot_localization / 多源融合                | 4 天    |
+| M8   | Lifecycle 节点                       | 托管节点 / 启动顺序                          | 4 天    |
+| M9   | ros2_control 重做底盘                | hardware_interface / controller_manager      | 6–7 天  |
+| M10  | 传感器节点 + 时间同步                | sensor_msgs / message_filters / use_sim_time | 4 天    |
+| M11  | behavior_manager 状态机              | 整机状态机 / 行为仲裁 / 急停                 | 5 天    |
+| M12  | health_monitor + 故障注入 + soak     | diagnostics / 看门狗 / 长时稳定              | 5 天    |
+| M13  | Gazebo 仿真（含仿真雷达/IMU/编码器） | gz sim / gz_ros2_control / 传感器插件        | 6–7 天  |
+| M14  | SLAM + Nav2 导航 🛒                   | slam_toolbox / amcl / costmap / BT           | 8–10 天 |
+| M15  | Launch 编排 + 系统管理               | launch.py / 参数 / lifecycle_manager         | 4 天    |
+| M16  | Component + Executor + 实时性        | 零拷贝 / 回调组 / jitter / 亲和性            | 5 天    |
+| M17  | 调试工具链 + bag                     | rqt / rosbag / Foxglove / 延迟测量           | 3 天    |
+| M18  | 工程化 + 单测 + 集成测试 + CI        | gtest / launch_testing / Docker / Actions    | 5 天    |
+| M19  | 收尾 + 面试包装                      | README / 演示视频 / 讲解演练                 | 4 天    |
 
-cpp
+🛒 = 真车依赖采购件（不买则仿真做 + 真车标"能讲"）。
+
+---
+
+
+
+#### 三、面试技术点 → 薪资杠杆映射
+
+| 你做的                     | 面试能讲的                         | 撬动                        |
+| -------------------------- | ---------------------------------- | --------------------------- |
+| Python 库逆向 → C++ HAL    | 协议移植、I2C 寄存器实现、硬件抽象 | 你的差异化底座              |
+| ros2_control 包 I2C HAL    | 工业级硬件抽象、read/write 循环    | 系统岗基本盘                |
+| 无编码器下的定位权衡       | 传感器预算的系统级判断             | 资深思维信号                |
+| IMU + EKF 融合             | 多传感器融合定位                   | 移动机器人核心，25k 门槛    |
+| SLAM + Nav2（真车）        | 自主导航集成、costmap/BT 调参      | Pudu/Yunjing 命根子，最值钱 |
+| 健康监控 + 故障注入 + soak | 可靠性设计、看门狗、长时稳定       | 你的协议背景差异化          |
+| 实时性（jitter/亲和性）    | 确定性、执行模型深度               | 拉开与"只会 spin"的人       |
+| sim/real 一套代码          | sim-first 工程实践                 | 研发效率                    |
+
+
+
+#### 四、背景直接复用清单
+
+- I2C 驱动（点亮 0x3C OLED）→ 0x2B 板 C++ HAL → ros2_control read/write
+- termios 串口 → IMU/雷达模块（UART）
+- 信号处理 + 优雅关闭 → lifecycle 的 configure/cleanup
+- 工业协议逆向 → Python 库翻 C++ HAL（M4 主任务）
+- 工业协议状态机 → behavior_manager 整机状态机
+- 通信健康监控 + watchdog → health_monitor + 故障注入 + soak
+- CommManager 线程模型 → executor + callback group + 实时性
+- IEC104/Modbus → 行业知识里 EtherCAT/CANopen 迁移谈资（面试讲接口设计即可，不硬啃）
+
+
+
+#### 五、范围纪律：故意不做的
+
+SROS2 安全、多机集群、DDS 深度调优、SLAM 算法 / 高级控制理论（动力学/MPC/RL）——要么用不上，要么是算法赛道（跟控制/CS 硕士竞争，ROI 低）。守住"集成和调 Nav2/SLAM"，不越界去"写 SLAM"。
+
+---
+
+
+
+#### 附：薪资定位（参考）
+
+- 这套做完 = **中级机器人系统/中间件工程师**：能在真实硬件上搭多节点 ROS2 系统、用 ros2_control 做硬件抽象、会 TF/里程计/lifecycle/EKF/Nav2 集成/诊断/仿真/实时性。配 3 年工业协议背景，画像是"协议 + 硬件接入 + 系统集成 + 可靠性"。
+- 不是算法工程师（不写 SLAM/导航/运动控制算法）——这是有意的赛道选择。
+- 深圳行情：嵌入式/机器人 C++ 20–25k 在中段，25k+ 靠差异化叙事 + 真车导航/融合 + 面试包装。你现在 12.5k@珠海低于深圳行情，20k 含相当一部分是地域迁移 + 纠偏，不算激进；25k+ 是这套计划要撬动的目标。
+
+
+
+
+
+### M0 — 工作空间 + 工程底盘
+
+**目标**：建 colcon 工作空间、第一个 ament_cmake 包、空节点；立工程发布纪律。
+
+先记住这一关唯一要内化的新心智模型:**overlay/underlay**。`/opt/ros/jazzy` 是 underlay(ROS2 本体),你的工作空间 `install/` 是 overlay,叠在它上面。每开一个新终端都要 source,`ros2` 才找得到你的包——这就是为什么待会儿要 `source install/setup.bash`。
+
+
+
+#### 工作空间 + 第一个包
+
+```bash
+mkdir -p ~/raspbot_ws/src
+cd ~/raspbot_ws/src
+ros2 pkg create raspbot_demo --build-type ament_cmake --license Apache-2.0 --dependencies rclcpp
+```
+
+这条命令生成的目录结构,对你来说类比很直接:`src/raspbot_demo/` 就是一个独立的 CMake 子工程,但多了两样 ROS2 特有的东西——`package.xml`(依赖清单,`rosdep` 读它装依赖)和一个 ament 风格的 `CMakeLists.txt`。`raspbot_demo` 是我们 M0/M1 的练习包;真正的项目包(`raspbot_interfaces`、`raspbot_chassis`…)会在对应里程碑才建,现在不预设。
+
+
+
+#### 写最小节点(这里拆 spin)
+
+删掉生成的示例,自己写 `src/raspbot_demo/src/hello_node.cpp`:
 
 ```cpp
-// 发布者节点
-// 继承rclcpp::Node
-// 创建Publisher<msg>
-// 定时器定期发布
+#include "rclcpp/rclcpp.hpp"
+
+class HelloNode : public rclcpp::Node
+{
+public:
+    HelloNode() : Node("hello_node")
+    {
+        RCLCPP_INFO(this->get_logger(), "HelloNode 已启动，executor 即将接管本线程");
+    }
+};
+
+int main(int argc, char **argv)
+{
+    rclcpp::init(argc,argv);    // 解析 ROS 参数、连上 DDS
+    auto node = std::make_shared<HelloNode>();
+    rclcpp::spin(node);         // 阻塞在 executor 事件循环
+    rclcpp::shutdown();
+    return 0;
+}
 ```
 
-第5天：
+`spin()`:跑一个 **executor**,阻塞着等 DDS 来消息,来了就派发给节点注册的回调。
 
-cpp
+**关键点:你这个节点现在一个回调都没注册**,所以 executor 进了循环就纯阻塞,啥也不派发。
+
+
+
+#### 两个 ament 文件
+
+```cmake
+cmake_minimum_required(VERSION 3.8)
+project(raspbot_demo)
+
+add_compile_options(-Wall -Wextra -Wpedantic)
+
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+
+add_executable(hello_node src/hello_node.cpp)
+ament_target_dependencies(hello_node rclcpp)
+
+install(TARGETS hello_node
+  DESTINATION lib/${PROJECT_NAME})
+
+ament_package()
+```
+
+四处 ROS2 特有、你裸 CMake 里没有的:
+
+1. `find_package(ament_cmake)` + 末尾 `ament_package()` —— ament 的构建系统外壳,`ament_package()` 必须是最后一行。
+2. `ament_target_dependencies(hello_node rclcpp)` —— 比手动 `target_link_libraries` 省事,它把 rclcpp 的 include/库/传递依赖一次性挂上。
+3. `install(TARGETS ... DESTINATION lib/${PROJECT_NAME})` —— **必须装到 `lib/包名` 下,`ros2 run` 才找得到这个可执行文件**。漏了它编译能过但 `ros2 run` 报找不到,这是新手第一个坑。
+
+
+
+`package.xml` 里把依赖声明对(`ros2 pkg create` 已经基本生成好,确认有这两行):
+
+```xml
+<buildtool_depend>ament_cmake</buildtool_depend>
+<depend>rclcpp</depend>
+```
+
+`<depend>` 就是 `rosdep` 读来装系统依赖的地方。
+
+
+
+#### 构建、source、运行
+
+```bash
+cd ~/raspbot_ws
+colcon build --symlink-install
+source install/setup.bash
+ros2 run raspbot_demo hello_node
+```
+
+- `colcon build`:扫 `src/` 下所有包,产物进 `build/`(中间)和 `install/`(成品)。
+- `--symlink-install`:用符号链接装,以后改 Python/config/launch 不用重 build(C++ 改了还是要 build)。
+- `source install/setup.bash`:把你的 overlay 叠到 jazzy underlay 上——这一步做完 `ros2` 才认识 `raspbot_demo`。
+- 跑起来你会看到那行 INFO,然后**卡住不动**(spin 在空转阻塞)。`Ctrl-C` 退出——这就对了,正是上面讲的"空 handler 表的接收循环"。
+- 可以把这行加进 `~/.bashrc` 省得每次手动 source:`echo "source ~/raspbot_ws/install/setup.bash" >> ~/.bashrc`(注意它要在 source jazzy 那行之后)。
+
+
+
+**工程纪律(顺手立好习惯)**
+
+`~/raspbot_ws/.gitignore`:
+
+```bash
+build/
+install/
+log/
+```
+
+`~/raspbot_ws/README.md` 起个头(从今天起每个里程碑更新它,别堆到最后):
+
+```markdown
+# Raspbot ROS2 自主移动平台
+
+Pi5 + Raspbot V2 上的项目驱动 ROS2 系统。Jazzy / Ubuntu 24.04。
+
+## 包结构
+- raspbot_demo —— M0/M1 学习包
+
+## 构建
+colcon build --symlink-install && source install/setup.bash
+```
+
+
+
+---
+
+
+
+### M1 — 发布/订阅 + 自定义消息 + 时间戳纪律
+
+**目标**：手写 pub/sub，定义 `.msg`，从一开始把时间戳和日志用对。
+
+
+
+#### 发布者 + 订阅者(标准消息)
+
+直接在 `raspbot_demo` 包里加两个节点。先写发布者 `src/raspbot_demo/src/wheel_pub.cpp`:
 
 ```cpp
-// 订阅者节点
-// 创建Subscription<msg>
-// 回调函数处理消息
-// 和发布者节点同时运行
+#include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/string.hpp"
+
+using namespace std::chrono_literals;
+
+class WheelPub : public rclcpp::Node
+{
+public:
+  WheelPub() : Node("wheel_pub"), count_(0)
+  {
+    pub_ = this->create_publisher<std_msgs::msg::String>("wheel_chatter", 10);
+    timer_ = this->create_wall_timer(
+        500ms, std::bind(&WheelPub::on_timer, this));
+    RCLCPP_INFO(this->get_logger(), "wheel_pub 启动，每 500ms 发一次");
+  }
+
+private:
+  void on_timer()
+  {
+    auto msg = std_msgs::msg::String();
+    msg.data = "wheel tick " + std::to_string(count_++);
+    RCLCPP_INFO(this->get_logger(), "发布: '%s'", msg.data.c_str());
+    pub_->publish(msg);
+  }
+
+  rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_;
+  size_t count_;
+};
+
+int main(int argc, char ** argv)
+{
+  rclcpp::init(argc, argv);
+  rclcpp::spin(std::make_shared<WheelPub>());
+  rclcpp::shutdown();
+  return 0;
+}
 ```
 
-第6天：
+- `create_wall_timer(500ms, ...)` —— 注册了一个**周期性回调**。这就是上次 M0 那个空 executor 现在拿到的第一个 handler。executor 不再纯阻塞,每 500ms 派发一次 `on_timer`。等价于你接收线程里那个"定时触发主动上报"的逻辑。
+- `create_publisher<String>("wheel_chatter", 10)` —— 建一个往话题 `wheel_chatter` 发的发布者。`10` 是 QoS 队列深度(发太快来不及发时缓冲多少条)——**注意这个参数,M2 整章就是讲它背后的 QoS**,现在用默认的 10 就行。
+- `publish(msg)` —— DDS 替你做序列化 + 分发给所有订阅者。你不用管有几个订阅者、它们在哪,这就是发布订阅解耦,对比你 CommManager 里还得自己维护 observer 列表。
 
-cpp
+
+
+再写订阅者 `src/raspbot_demo/src/wheel_sub.cpp`:
 
 ```cpp
-// Service服务端+客户端
-// 自定义srv文件
-// 同步调用 vs 异步调用
+#include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/string.hpp"
+
+class WheelSub : public rclcpp::Node
+{
+public:
+  WheelSub() : Node("wheel_sub")
+  {
+    sub_ = this->create_subscription<std_msgs::msg::String>(
+        "wheel_chatter", 10,
+        std::bind(&WheelSub::on_msg, this, std::placeholders::_1));
+    RCLCPP_INFO(this->get_logger(), "wheel_sub 启动，等数据");
+  }
+
+private:
+  void on_msg(const std_msgs::msg::String & msg)
+  {
+    RCLCPP_INFO(this->get_logger(), "收到: '%s'", msg.data.c_str());
+  }
+
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_;
+};
+
+int main(int argc, char ** argv)
+{
+  rclcpp::init(argc, argv);
+  rclcpp::spin(std::make_shared<WheelSub>());
+  rclcpp::shutdown();
+  return 0;
+}
 ```
 
-------
+订阅者更纯粹:`on_msg` **就是你的 observer 回调**——话题来数据,executor 派发给它。订阅者的话题名 `wheel_chatter` 和 QoS 深度 `10` 必须和发布者**对得上**,DDS 才会把它俩接起来(M2 你会看到 QoS 不匹配会导致连不上,现在先一致)。
 
 
 
-### 第7-9天：DDS深化
+**CMakeLists 加两个可执行文件**
 
-第7天：QoS配置
+在 `raspbot_demo/CMakeLists.txt` 里,`find_package(rclcpp REQUIRED)` 后面加一句 std_msgs,然后注册两个新目标:
 
-cpp
+```cmake
+find_package(std_msgs REQUIRED)
+
+add_executable(wheel_pub src/wheel_pub.cpp)
+ament_target_dependencies(wheel_pub rclcpp std_msgs)
+
+add_executable(wheel_sub src/wheel_sub.cpp)
+ament_target_dependencies(wheel_sub rclcpp std_msgs)
+
+install(TARGETS hello_node wheel_pub wheel_sub
+  DESTINATION lib/${PROJECT_NAME})
+```
+
+(注意 `install(TARGETS ...)` 那行——把三个目标并到一起,别漏了新的两个,否则 `ros2 run` 找不到。)
+
+`package.xml` 里加一行依赖:
+
+```xml
+<depend>std_msgs</depend>
+```
+
+
+
+**构建 + 跑(要两个终端)**
+
+```bash
+cd ~/raspbot_ws
+colcon build --symlink-install
+source install/setup.bash
+
+# 终端 1
+ros2 run raspbot_demo wheel_pub
+
+# 终端 2(先 source)
+source install/setup.bash
+ros2 run raspbot_demo wheel_sub
+```
+
+**checkpoint**:跑起来后给我三样——
+
+1. 两个终端的输出(pub 在"发布:"、sub 在"收到:",数字对得上)。
+2. `ros2 topic list`(第三个终端,source 后):看到 `/wheel_chatter` 没。
+3. `ros2 topic echo /wheel_chatter`:用命令行直接当订阅者,看你不写代码也能 echo 出消息——体会一下话题是"谁都能接的公共总线"。
+
+
+
+---
+
+
+
+### M2 — QoS 与 DDS 深化（你的全新领域，给足时间）
+
+**目标**：吃透 QoS 策略组合，理解 DDS 发现，会测频率/延迟。
+
+**新概念**
+
+- QoS：RELIABILITY / DURABILITY / DEADLINE / HISTORY。
+- 选型直觉：传感器→BEST_EFFORT；控制→RELIABLE；状态→TRANSIENT_LOCAL。
+- Fast-DDS 原理、Domain、Participant、Discovery、多机通信。
+- RMW 选择（Fast-DDS vs Cyclone）了解即可；`ros2 topic hz/delay`。
+
+**为什么重点**：DDS 把可靠性做成正交可配的策略矩阵，是你 IEC104/Modbus 里没有的，面试常考。
+
+**产出物**：QoS 对照实验记录 + 端到端延迟测量报告。
+**估时**：4 天
+
+---
+
+
+
+### M3 — Service + Action
+
+**目标**：service 端/客户端 + 自定义 srv；完整 action。
+
+**新概念**
+
+- service / client、自定义 srv、同步 vs 异步。
+- action：goal/feedback/result/cancel，自定义 action。
+
+**复用/全新**：service ≈ 读写寄存器（正好像你 0x2B 板的读写）；action 是你协议里没有的全新概念，重点。
+
+**产出物**：查询服务（读系统状态）+ 长任务 action（原地转 90°，带进度反馈）。
+**估时**：4 天
+
+---
+
+
+
+### M4 — C++ HAL 移植 + chassis_driver（你的主场）
+
+**目标**：把官方 Python 库**翻译成 C++ HAL**（`RaspbotBoard` 类），再包成订阅 `/cmd_vel` 的 chassis_driver 节点。
+
+**核心任务：Python 库 → C++ HAL**
+官方 Python 库不是依赖，是协议规格书。这事和你三年逆向工业协议、用 C++ 重写协议栈一模一样。在你 Linux 阶段 `I2CDevice` 类（已 open `/dev/i2c-1`、做过 `ioctl(I2C_SLAVE)`）上加寄存器读写，照〇节那张表实现：
 
 ```cpp
-// RELIABILITY: RELIABLE vs BEST_EFFORT
-// DURABILITY: TRANSIENT_LOCAL vs VOLATILE
-// DEADLINE: 超时告警
-// HISTORY: KEEP_LAST vs KEEP_ALL
+// 写电机  Python: write_i2c_block_data(0x2B, 0x01, [id,dir,speed])
+uint8_t buf[3] = {id, dir, speed};
+i2c_smbus_write_i2c_block_data(fd_, 0x01, 3, buf);          // 链接 -li2c
 
-// 什么时候用什么：
-// 传感器数据 → BEST_EFFORT（允许丢包，要低延迟）
-// 控制指令   → RELIABLE（不能丢）
-// 状态信息   → TRANSIENT_LOCAL（新订阅者能收到最新值）
+// 读超声  Python: (read(0x1b)<<8)|read(0x1a)
+uint8_t hi = i2c_smbus_read_byte_data(fd_, 0x1b);
+uint8_t lo = i2c_smbus_read_byte_data(fd_, 0x1a);
+uint16_t dist_mm = (hi << 8) | lo;
+
+// 读循迹  Python: read(0x0a) → bit[3:0]
+uint8_t t = i2c_smbus_read_byte_data(fd_, 0x0a);
+bool x1=(t>>3)&1, x2=(t>>2)&1, x3=(t>>1)&1, x4=t&1;
 ```
 
-第8天：
+`sudo apt install libi2c-dev`，链接 `-li2c`；或零依赖用 `ioctl(fd, I2C_RDWR, ...)` 双消息（写 reg + repeated-start 读 N）自己做。**ros2_control 的 hardware_interface 必须 C++，所以这个 HAL M4 写一次、M9 直接复用，不浪费。**
 
-- Fast-DDS基本原理
-- 域（Domain）和参与者（Participant）
-- 发现机制（Discovery）
-- 多机通信配置
+**新概念**
 
-第9天：
+- 0x2B 寄存器协议的 C++ 实现、I2C 块读写、repeated-start。
+- `geometry_msgs/Twist`、`/cmd_vel` 约定。
+- 麦克纳姆轮逆运动学：(vx, vy, ω) → 四轮 PWM。
+- 真车前馈标定：测 "PWM 150 ≈ 0.X m/s"（随地面/电量漂，标注清楚）。
 
-cpp
+**复用你的**：I2C 驱动（0x3C OLED）直接迁到 0x2B 板——你的协议移植功底就是差异化。事件驱动 ChassisDriver 的"来指令→解算→下发"链路对应订阅回调。
 
-```cpp
-// 实战：配置不同QoS，观察行为差异
-// 用ros2 topic hz测量发布频率
-// 用ros2 topic delay测量端到端延迟
-```
+**真车/仿真**：真车 = `/cmd_vel → 解算 → 开环 PWM`；闭环 PID 放仿真（M13）。
 
-------
+**产出物**：键盘 teleop → **真车第一次动起来**（开始录演示素材）+ 一个干净的 `RaspbotBoard` C++ HAL（GitHub 单独可见的亮点）。
+**估时**：5–6 天
 
+---
 
 
-### 第10-12天：Lifecycle Node
 
-第10天：
+### M5 — 里程计 + TF + 帧约定（机器人学核心）
 
-cpp
+**目标**：发布 `nav_msgs/Odometry` 和 `odom→base_link` TF；建立标准帧/单位习惯。
 
-```cpp
-// 生命周期状态机：
-// Unconfigured → Inactive → Active → Finalized
-// on_configure() on_activate() on_deactivate() on_cleanup()
+**新概念**
 
-// 为什么用Lifecycle：
-// 普通节点：启动就跑，无法控制初始化顺序
-// Lifecycle节点：可以控制启动顺序，系统状态管理
-```
+- tf2：坐标系树、TransformBroadcaster、static/dynamic。
+- 里程计：真车只能**指令式**（积分下发 Twist，质量差，明确标注）；真轮速积分放仿真。
+- **REP-103（单位/坐标方向）/ REP-105（map→odom→base_link 链）**——为 M14 Nav2 铺路。
 
-第11天：
+**面试点**：诚实讲"本平台无编码器，指令式里程计仅作 dead-reckoning 兜底，定位主要靠 IMU 航向 + 雷达扫描匹配"——这是对传感器预算的系统级权衡，比有 odometry 喂给你更值钱。
 
-cpp
+**产出物**：RViz 看到车在动、`view_frames` 出的 TF 树符合 REP-105。
+**估时**：4 天
 
-```cpp
-// 把SerialPort驱动包装成Lifecycle节点
-// configure阶段：打开串口，初始化参数
-// activate阶段：开始收发数据
-// deactivate阶段：停止收发，保持连接
-// cleanup阶段：关闭串口
-```
+---
 
-第12天：
 
-cpp
 
-```cpp
-// 多Lifecycle节点编排
-// Launch文件控制启动顺序
-// 节点管理器监控各节点状态
-```
+### M6 — URDF + robot_state_publisher + RViz + Foxglove
 
-------
+**目标**：写 Raspbot URDF（base_link、四轮、超声波/相机/IMU/雷达 frame），robot_state_publisher 发 TF，RViz + Foxglove 显示。
 
+**新概念**
 
+- URDF：link/joint/几何/惯性/材质。
+- robot_state_publisher 从 URDF + joint_states 发 TF。
+- RViz 配置；**Foxglove Studio** 远程观测（业界标准）。
 
-### 第13-15天：Launch文件+参数
+**产出物**：RViz/Foxglove 里会动的 Raspbot 模型 + 完整 TF 树。强面试演示物。
+**估时**：4 天
 
-第13天：
+---
 
-python
 
-```python
-# launch文件基础
-# 启动多个节点
-# 传递参数
-# 条件启动
-```
 
-第14天：
+### M7 — IMU + robot_localization EKF 融合 🛒[需 IMU]
 
-cpp
+**目标**：接 IMU，发 `sensor_msgs/Imu`，用 `robot_localization` 的 EKF 融合指令式里程计 + IMU。
 
-```cpp
-// 参数服务器
-// 声明参数：declare_parameter
-// 读取参数：get_parameter
-// 动态修改：参数回调
-// yaml配置文件
-```
+**新概念**
 
-第15天：
+- IMU 节点（I2C/UART 读 Yahboom 模块，复用你的 I2C/串口驱动）、坐标系对齐、标定。
+- `robot_localization` EKF：多源融合、配置 yaml、`odom→base_link` 由 EKF 产出。
+- 在无轮速的现实下，IMU 把航向稳住的价值。
 
-cpp
+**复用你的**：IMU 走 I2C 或 UART——你的 I2C 驱动 / SerialPort 都用得上。
 
-```cpp
-// 把raspbot项目的所有参数外部化
-// 串口路径/波特率/发布频率都从yaml读
-// 不同硬件配置不改代码，只换yaml
-```
+**为什么重要**：移动机器人标配，集成（配置包）非造算法，面试高频。
 
-------
+**产出物**："纯指令式 vs 融合后"航向漂移对比图。
+**不买退路**：Gazebo 仿真 IMU 做这关，真车标"能讲"。
+**估时**：4 天
 
+---
 
 
-### 第16-20天：raspbot项目实战
 
-**这五天是重点，把之前学的全部用上**
+### M8 — Lifecycle 节点（排在 ros2_control 之前）
 
-第16天：底盘驱动节点
+**目标**：把 chassis_driver 和传感器节点包成 lifecycle 托管节点。
 
-cpp
+**新概念**
 
-```cpp
-// 串口通信（用Linux阶段写的SerialPort）
-// 订阅/cmd_vel话题
-// 麦克纳姆轮运动学解算
-// 发布电机指令到驱动板
-```
+- 状态机：Unconfigured → Inactive → Active → Finalized。
+- on_configure / on_activate / on_deactivate / on_cleanup。
+- 为什么：可控初始化顺序、系统级状态管理。
 
-第17天：传感器节点
+**复用你的**：configure 开 I2C 总线、activate 收发、deactivate 停、cleanup 关——对应你 Linux 阶段资源管理 + 信号处理优雅关闭。
 
-cpp
+**为什么排在前**：ros2_control 的 hardware component 本身就是 lifecycle，先懂这个 M9 会顺很多。
 
-```cpp
-// 超声波传感器节点
-// 摄像头节点（V4L2或OpenCV）
-// 发布标准ROS2消息类型
-// sensor_msgs/Range
-// sensor_msgs/Image
-```
+**产出物**：可受控启停节点，`ros2 lifecycle set` 切状态。
+**估时**：4 天
 
-第18天：系统状态机节点
+---
 
-cpp
 
-```cpp
-// IDLE/MOVING/AVOIDING/FAULT/ESTOP
-// Lifecycle Node实现
-// 订阅传感器话题
-// 发布系统状态话题
-```
 
-第19天：传感器健康监控节点
+### M9 — ros2_control 重做底盘（工业级，最大谈资）
 
-cpp
+**目标**：把 M4 的 C++ HAL 包成 `hardware_interface::SystemInterface`，用 controller 驱动。
 
-```cpp
-// 订阅所有传感器话题
-// 监控发布频率
-// 超时检测：>200ms没收到数据→告警
-// 发布/system/sensor_health话题
-```
+**新概念**
 
-第20天：整合+调试
+- 架构：controller_manager / resource manager / hardware_interface / controller。
+- 写 SystemInterface：on_init/on_configure/read()/write()，command vs state interface。
+- 麦轮 controller：优先现成 `mecanum_drive_controller`；没有则懂 diff_drive 后处理麦轮解算。
+- URDF `<ros2_control>` 标签、controller yaml、spawner。
 
-cpp
+**复用你的**：read()/write() 里就是你 M4 的 I2C HAL 收发；on_configure/on_cleanup 对应总线开关。
 
-```cpp
-// 写完整Launch文件启动所有节点
-// rqt_graph查看节点图
-// ros2 bag录制传感器数据
-// 调试端到端延迟
-```
+**真车 vs 仿真（重要）**：真车无编码器 → hardware_interface 退化成**薄开环写接口**（state interface 仅回显 command），ros2_control 的反馈/闭环价值在此残缺。**完整 ros2_control 体验（状态反馈 + 控制器链）在 Gazebo 跑**（gz 给真实关节反馈）。面试要讲清这个权衡。
 
-------
+**资深提醒**：别自造麦轮 controller。先把 read/write 闭环跑通（架构 > 解算）。
 
+**产出物**：ros2_control 驱动（真车开环 / 仿真闭环），与 M4 手写版对照，能讲清取舍。
+**估时**：6–7 天
 
+---
 
-### 第21-23天：调试工具链
 
-第21天：
 
-- `rqt_graph`：节点通信图
-- `rqt_plot`：实时数据曲线
-- `rviz2`：传感器数据可视化
+### M10 — 传感器节点 + 时间同步
 
-第22天：
+**目标**：ultrasonic_node（0x07/0x1a-1b 发 Range）、tracking_node（0x0a 发 4 路状态）、camera_node（USB 发 Image）；处理多传感器时间对齐。
 
-- `ros2 bag`：数据录制回放
-- 回放数据调试算法（不需要真实硬件）
-- bag文件分析
+**新概念**
 
-第23天：
+- 标准消息：Range / Image / CameraInfo，header/时间戳/frame_id。
+- 传感器用 BEST_EFFORT QoS。
+- **message_filters**（ApproximateTime/ExactTime 同步）、**use_sim_time** 全系统一致。
 
-- 性能分析：话题延迟测量
-- `ros2 doctor`：系统诊断
-- 常见问题排查
+**为什么强化**：多传感器时间对齐是真实系统 bug 高发区、面试常问。
 
-------
+**复用你的**：超声波/循迹都经 0x2B 板读，复用 M4 的 HAL。
 
+**产出物**：RViz/Foxglove 看到 range 圆弧 + 相机画面 + 循迹状态，时间戳一致。
+**估时**：4 天
 
+---
 
-### 第24-26天：进阶话题
 
-第24天：组件（Component）
 
-cpp
+### M11 — behavior_manager 状态机
 
-```cpp
-// 把节点编译成动态库
-// 多个节点跑在同一进程
-// 零拷贝通信（进程内）
-// 降低延迟
-```
+**目标**：IDLE/TELEOP/AVOID/LINE_FOLLOW/NAV/ESTOP/FAULT 状态机（lifecycle），超声触发避障，4 路循迹巡线，发/仲裁 `/cmd_vel`。
 
-第25天：执行器（Executor）
+**新概念**
 
-cpp
+- 整机状态管理、状态转换、急停优先级。
+- 行为仲裁：teleop vs 自主 vs 导航 vs 急停谁说了算。
 
-```cpp
-// SingleThreadedExecutor
-// MultiThreadedExecutor
-// 回调组（CallbackGroup）
-// 控制并发
-```
+**复用你的**：工业协议状态机直觉升级成整机行为层。
 
-第26天：自定义消息和服务
+**产出物**：车能自主避障 + 巡线。系统第一次"有行为"。
+**估时**：5 天
 
-cpp
+---
 
-```cpp
-// 设计raspbot专用消息
-// WheelSpeed.msg
-// SystemStatus.msg
-// DeviceHealth.srv
-```
 
-------
 
+### M12 — health_monitor + 故障注入 + 长时稳定性
 
+**目标**：订阅全部话题，监频率/超时，发 `DiagnosticArray`，异常反馈 behavior 进 FAULT；故障注入 + soak。
 
-### 第27-30天：项目收尾
+**新概念**
 
-第27天：
+- diagnostic_msgs / diagnostic_updater / aggregator。
+- 心跳/超时/看门狗、故障恢复策略。
+- **故障注入**：kill 节点、拔传感器、断 I2C，看系统反应。
+- **soak 测试**：整系统连续跑 30 分钟，抓内存泄漏/时间漂移/断连重连。
 
-- 代码整理，统一命名规范
-- 加单元测试（gtest）
-- 补充注释
+**复用你的**：直接是你工业协议通信健康监控 + Linux watchdog 的主场——最强差异化。
 
-第28天：
+**产出物**：**拔超声波 → 系统进 FAULT + 蜂鸣器(0x06)报警 + 安全停车**；30 分钟 soak 报告。面试金句级演示。
+**估时**：5 天
 
-- 录演示视频
-- 写README（架构图+功能说明+运行方法）
-- rqt_graph截图放进去
+---
 
-第29天：
 
-- 简历描述写好（用之前给你的模板）
-- 整理面试能讲的技术点清单
 
-第30天：
+### M13 — Gazebo 仿真（完整系统的家）
 
-- 模拟面试，把项目从头讲一遍
-- 计时，控制在15分钟内
-- 找朋友或者来找我练
+**目标**：URDF→SDF，gz sim 加载 Raspbot，gz_ros2_control 让 M9 接口在仿真跑闭环，加**仿真编码器/IMU/雷达**。
+
+**新概念**
+
+- URDF/SDF、gz sim 世界与模型。
+- gz_ros2_control：同一套 controller 配置 sim/real 切换。
+- 仿真传感器插件：超声波、相机、IMU、**2D 雷达**。
+
+**为什么是枢纽**：仿真传感器全理想，是 SLAM/Nav2 的运行平台，也让真车缺的编码器/雷达不挡路——闭环 PID、真轮速里程计在这里补齐。
+
+**产出物**：同一套节点在 Gazebo 跑避障 + 巡线 + 闭环速度跟踪曲线 + 雷达点云。
+**估时**：6–7 天（Gazebo 坑多，别赶）
+
+---
+
+
+
+### M14 — SLAM + Nav2 自主导航 🛒[真车需雷达]（核心增量）
+
+**目标**：slam_toolbox 建图，Nav2 点到点自主导航。先仿真（仿真雷达），有真雷达则上真车。
+
+**新概念**
+
+- **slam_toolbox**：2D 激光建图、保存地图。
+- **AMCL**：已知地图定位，提供 map→odom（补无编码器的定位缺口）。
+- **Nav2 栈**：global/local costmap、planner（NavFn/Smac）、controller（DWB/RPP/MPPI）、recovery、**behavior tree**。
+- `nav2_bringup`、lifecycle_manager 管 Nav2 节点。
+
+**资深定位**：你是**集成和调** Nav2，不是写 SLAM。会配 costmap、调 controller 参数、看懂 BT、排查定位失败——这就是移动机器人系统岗要的。
+
+**产出物**：仿真建图 + RViz 点目标自主导航避障；有雷达则真车复现。对 Pudu/Yunjing 是**最值钱的简历线**。
+**不买退路**：仿真做全套，真车标"能讲"；或用深度相机走 RTAB-Map 视觉 SLAM（成本更高的另一条路）。
+**估时**：8–10 天（最大一块）
+
+---
+
+
+
+### M15 — Launch 编排 + 系统管理
+
+**目标**：一条命令起整个系统；参数全外部化；lifecycle_manager 控启动顺序。
+
+**新概念**
+
+- launch.py：多节点、传参、条件启动、namespace、event handler。
+- 参数：declare/get/回调、参数校验（on_set_parameters_callback）、yaml。
+- **lifecycle_manager**：编排托管节点有序 bringup（Nav2 同款机制）。
+- sim vs real 经 launch 参数切换。
+
+**产出物**：`ros2 launch raspbot_bringup system.launch.py sim:=true/false` 一键切真机/仿真。
+**估时**：4 天
+
+---
+
+
+
+### M16 — Component + Executor + 实时性
+
+**目标**：关键节点合进程零拷贝；理解 executor 并发；建立实时性认知。
+
+**新概念**
+
+- Composable node：编译成库，进程内零拷贝降延迟。
+- SingleThreaded vs MultiThreaded executor、CallbackGroup、并发控制。
+- **实时性**：PREEMPT_DYNAMIC vs PREEMPT_RT、控制环为什么要确定性、CPU 亲和性、测 jitter、SCHED_FIFO 概念。
+
+**复用你的**：executor + callback group ≈ CommManager 线程模型，你能从框架层理解它；实时性接你"知道 spin 底下是 epoll/线程/队列"的深度。
+
+**产出物**：底盘+里程计合进程，测延迟改善；一份 jitter 测量。
+**估时**：5 天
+
+---
+
+
+
+### M17 — 调试工具链 + bag
+
+**目标**：掌握全套观测和回放调试。
+
+**新概念**
+
+- rqt_graph/rqt_plot/rviz2、**Foxglove** 回放。
+- ros2 bag 录制回放、bag 分析。
+- ros2 doctor、延迟/频率测量、常见排查。
+
+**产出物**：录一段真实运行数据，离线回放调状态机/导航（不依赖真车）。
+**估时**：3 天
+
+---
+
+
+
+### M18 — 工程化 + 单测 + 集成测试 + CI
+
+**目标**：达到可投递的工程标准。
+
+**新概念**
+
+- gtest 单测（麦轮解算、状态机转换、HAL 寄存器打包）。
+- **launch_testing 集成测试**：起节点、断言话题行为——会写机器人系统测试。
+- ament_lint、命名规范、注释。
+- Docker 化、GitHub Actions CI（colcon build + test）。
+
+**产出物**：有单测 + 集成测试、能 CI、绿 badge 的仓库。
+**估时**：5 天
+
+---
+
+
+
+### M19 — 收尾 + 面试包装
+
+**目标**：把项目变成能讲的故事。
+
+**清单**
+
+- README：架构图 + 功能 + 运行方法 + rqt/Foxglove 截图。
+- 演示视频：真车避障/巡线 + 仿真闭环导航(Nav2) + 故障注入安全停车 + soak。
+- 简历描述、面试技术点清单。
+- 模拟面试：从头讲一遍，计时 15 分钟内。
+
+**产出物**：可投递项目 + 一套能讲满 15 分钟的技术叙事。
+**估时**：4 天
+
+---
 
 
 
