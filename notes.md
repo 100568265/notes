@@ -9160,7 +9160,7 @@ colcon build --symlink-install && source install/setup.bash
 
 
 
-### M1 — 发布/订阅 + 自定义消息 + 时间戳纪律
+### M1 — 发布/订阅 /自定义Msg
 
 **目标**：手写 pub/sub，定义 `.msg`，从一开始把时间戳和日志用对。
 
@@ -9179,40 +9179,36 @@ using namespace std::chrono_literals;
 class WheelPub : public rclcpp::Node
 {
 public:
-  WheelPub() : Node("wheel_pub"), count_(0)
-  {
-    pub_ = this->create_publisher<std_msgs::msg::String>("wheel_chatter", 10);
-    timer_ = this->create_wall_timer(
-        500ms, std::bind(&WheelPub::on_timer, this));
-    RCLCPP_INFO(this->get_logger(), "wheel_pub 启动，每 500ms 发一次");
-  }
+    WheelPub() 
+        : Node("wheel_pub"), count_(0)
+    {
+        pub_ = this->create_publisher<std_msgs::msg::String>("wheel_chatter", 10);      // 建一个往话题 wheel_chatter 发的发布者。10 是 QoS 队列深度(发太快来不及发时缓冲多少条)
+        timer_ = this->create_wall_timer(500ms, std::bind(&WheelPub::on_timer,this));   // 注册了一个周期性回调。executor 不再纯阻塞,每 500ms 派发一次 on_timer。
+        RCLCPP_INFO(this->get_logger(), "wheel_pub启动, 每500ms 发一次");
+    }
 
 private:
-  void on_timer()
-  {
-    auto msg = std_msgs::msg::String();
-    msg.data = "wheel tick " + std::to_string(count_++);
-    RCLCPP_INFO(this->get_logger(), "发布: '%s'", msg.data.c_str());
-    pub_->publish(msg);
-  }
+    void on_timer()
+    {
+        auto msg = std_msgs::msg::String();
+        msg.data = "wheel tick " + std::to_string(count_++);
+        RCLCPP_INFO(this->get_logger(), "发布: %s", msg.data.c_str());
+        pub_->publish(msg);                 // DDS 替你做序列化 + 分发给所有订阅者。你不用管有几个订阅者、它们在哪,这就是发布订阅解耦
+    }
 
-  rclcpp::TimerBase::SharedPtr timer_;
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_;
-  size_t count_;
+    rclcpp::TimerBase::SharedPtr timer_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_;
+    size_t count_;
 };
 
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<WheelPub>());
-  rclcpp::shutdown();
-  return 0;
+int main(int argc, char** argv)
+{   
+    rclcpp::init(argc,argv);
+    rclcpp::spin(std::make_shared<WheelPub>());
+    rclcpp::shutdown();
+    return 0;
 }
 ```
-
-- `create_wall_timer(500ms, ...)` —— 注册了一个**周期性回调**。这就是上次 M0 那个空 executor 现在拿到的第一个 handler。executor 不再纯阻塞,每 500ms 派发一次 `on_timer`。等价于你接收线程里那个"定时触发主动上报"的逻辑。
-- `create_publisher<String>("wheel_chatter", 10)` —— 建一个往话题 `wheel_chatter` 发的发布者。`10` 是 QoS 队列深度(发太快来不及发时缓冲多少条)——**注意这个参数,M2 整章就是讲它背后的 QoS**,现在用默认的 10 就行。
-- `publish(msg)` —— DDS 替你做序列化 + 分发给所有订阅者。你不用管有几个订阅者、它们在哪,这就是发布订阅解耦,对比你 CommManager 里还得自己维护 observer 列表。
 
 
 
@@ -9305,25 +9301,410 @@ ros2 run raspbot_demo wheel_sub
 
 
 
+#### 自定义消息
+
+这一关的新东西全在"消息怎么从文本变成 C++ 类型"的构建流程上,代码改动反而很小。
+
+**第 1 步:建独立的接口包**
+
+```bash
+cd ~/raspbot_ws/src
+ros2 pkg create raspbot_interfaces \
+    --build-type ament_cmake \
+    --license Apache-2.0 \
+    --dependencies std_msgs
+```
+
+注意依赖里加了 `std_msgs`——因为我们的消息要用它的 `Header`。
+
+**第 2 步:写 .msg 文件**
+
+```bash
+mkdir -p raspbot_interfaces/msg
+cat > raspbot_interfaces/msg/WheelSpeed.msg << 'EOF'
+std_msgs/Header header
+float64 front_left
+float64 front_right
+float64 rear_left
+float64 rear_right
+EOF
+```
+
+**第 3 步:让接口包生成代码(这是新东西)**
+
+接口包的 `CMakeLists.txt`,在 `find_package(std_msgs REQUIRED)` 后面加:
+
+```cmake
+find_package(rosidl_default_generators REQUIRED)
+
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/WheelSpeed.msg"
+  DEPENDENCIES std_msgs
+)
+```
+
+`package.xml` 里加这三行(顺序无所谓,但都得有):
+
+```xml
+<buildtool_depend>rosidl_default_generators</buildtool_depend>
+<depend>std_msgs</depend>
+<member_of_group>rosidl_interface_packages</member_of_group>
+```
+
+`rosidl_generate_interfaces` 就是那个"把 `.msg` 文本编译成 C++/Python 类型"的魔法。build 之后,你会在 `install/raspbot_interfaces/include/...` 下看到生成的 `wheel_speed.hpp`——**这就是你的 `Frame` 结构体,只不过是工具生成的,还附带了 CDR 序列化代码。**
+
+**第 4 步:先单独 build 接口包,验证生成**
+
+```bash
+cd ~/raspbot_ws
+colcon build --packages-select raspbot_interfaces
+source install/setup.bash
+ros2 interface show raspbot_interfaces/msg/WheelSpeed
+```
+
+`ros2 interface show` 会把你的消息结构打印出来——这等于让 ROS2 系统确认"我认识这个新类型了"。
+
+**第5步：去看生成的 C++ 头**
+
+你刚写的是一个**文本文件** `WheelSpeed.msg`,5 行。rosidl 把它编译成了一个真正的 C++ 结构体。去看一眼:
+
+```bash
+find ~/raspbot_ws/install/raspbot_interfaces -name "wheel_speed.hpp"
+```
+
+会列出几个文件,看这个主结构定义:
+
+```bash
+cat ~/raspbot_ws/install/raspbot_interfaces/include/raspbot_interfaces/raspbot_interfaces/msg/detail/wheel_speed__struct.hpp
+```
+
+(路径里 `raspbot_interfaces/raspbot_interfaces` 双层是 ROS2 的 include 约定,M1 配 clangd 时你见过这个结构。)
+
+翻到中间 `struct WheelSpeed_` 那段,你会看到你那 5 行文本变成了:
+
+- 一个模板化的 C++ struct,成员就是 `header`、`front_left`…`rear_right`,类型一一对应(`float64`→`double`)。
+- 构造函数里把数值成员**零初始化**。
+- 一堆 `using` 类型别名、`==`/`!=` 运算符。
+
+**这就是你手写的 `Frame`,只不过是工具生成的。** 你过去做协议:手写 struct 定义字节布局 → 手写 `serialize()`/`deserialize()` 做大小端和打包 → 手写 CRC。rosidl 把这整条链自动化了:你只声明字段,它生成 struct + CDR 序列化代码(在另几个 `__type_support` 文件里)+ 跨语言绑定(C/C++/Python 都生成)。**DDS 的 IDL/CDR = 你协议栈的工业标准版。** 你过去是这条链的手工匠人,现在你理解它底下在干什么,只是不用再手搓了。
+
+
+
+#### 让节点发 WheelSpeed
+
+现在把 `wheel_pub`/`wheel_sub` 从 `std_msgs::String` 换成你这个新类型。改动不大,但有**三个新东西**要落实:跨包依赖、填时间戳、填结构化字段。
+
+1. 改 `wheel_pub.cpp`
+
+```cpp
+#include "rclcpp/rclcpp.hpp"
+#include "raspbot_interfaces/msg/wheel_speed.hpp"
+
+using namespace std::chrono_literals;
+
+class WheelPub : public rclcpp::Node
+{
+public:
+    WheelPub() 
+        : Node("wheel_pub"), tick_(0)
+    {
+        pub_ = this->create_publisher<raspbot_interfaces::msg::WheelSpeed>("wheel_speed", 10);      // 建一个往话题 wheel_chatter 发的发布者。10 是 QoS 队列深度(发太快来不及发时缓冲多少条)
+        timer_ = this->create_wall_timer(500ms, std::bind(&WheelPub::on_timer,this));   // 注册了一个周期性回调。executor 不再纯阻塞,每 500ms 派发一次 on_timer。
+        RCLCPP_INFO(this->get_logger(), "wheel_pub启动, 每500ms 发一次");
+    }
+
+private:
+    void on_timer()
+    {
+        auto msg = raspbot_interfaces::msg::WheelSpeed();
+        msg.header.stamp = this->now();     // ← 时间戳纪律：发的瞬间盖时间章
+        msg.header.frame_id = "base_link";  // ← 这数据属于车体坐标系
+        double v = 0.1 * tick_++;                // 假数据，递增轮速
+        msg.front_left  = v;
+        msg.front_right = v;
+        msg.rear_left   = v;
+        msg.rear_right  = v;
+        RCLCPP_INFO(this->get_logger(), "发布: FL=%.2f FR=%.2f RL=%.2f RR=%.2f",
+                msg.front_left, msg.front_right, msg.rear_left, msg.rear_right);
+        pub_->publish(msg);                 // DDS 替你做序列化 + 分发给所有订阅者。你不用管有几个订阅者、它们在哪,这就是发布订阅解耦
+    }
+
+    rclcpp::TimerBase::SharedPtr timer_;
+    rclcpp::Publisher<raspbot_interfaces::msg::WheelSpeed>::SharedPtr pub_;
+    size_t tick_;
+};
+
+int main(int argc, char** argv)
+{   
+    rclcpp::init(argc,argv);
+    rclcpp::spin(std::make_shared<WheelPub>());
+    rclcpp::shutdown();
+    return 0;
+}
+```
+
+
+
+2.  改 `wheel_sub.cpp`(回调里读结构化字段)
+
+```cpp
+#include "rclcpp/rclcpp.hpp"
+#include "raspbot_interfaces/msg/wheel_speed.hpp"
+
+class WheelSub : public rclcpp::Node
+{
+public:
+    WheelSub() : Node("wheel_sub")
+    {
+        sub_ = this->create_subscription<raspbot_interfaces::msg::WheelSpeed>(
+            "wheel_speed", 10,
+            std::bind(&WheelSub::on_msg,this,std::placeholders::_1));
+        RCLCPP_INFO(this->get_logger(), "wheel_sub 启动，等WheelSpeed");
+    }
+
+private:
+    void on_msg(const raspbot_interfaces::msg::WheelSpeed & msg)
+    {
+        RCLCPP_INFO(this->get_logger(), "收到: FL=%.2f RR=%.2f @ stamp %d.%09u",
+                msg.front_left, msg.rear_right,
+                msg.header.stamp.sec, msg.header.stamp.nanosec);
+    }
+
+    rclcpp::Subscription<raspbot_interfaces::msg::WheelSpeed>::SharedPtr sub_;
+};
+
+int main(int argc, char** argv)
+{
+    rclcpp::init(argc,argv);
+    rclcpp::spin(std::make_shared<WheelSub>());
+    rclcpp::shutdown();
+    return 0;
+}
+```
+
+
+
+3. 关键:`raspbot_demo` 要声明对 `raspbot_interfaces` 的依赖
+
+`raspbot_demo` 现在用了 `raspbot_interfaces` 的类型,必须声明依赖,否则编译时找不到头。
+
+`raspbot_demo/package.xml` 加一行:
+
+```xml
+<depend>raspbot_interfaces</depend>
+```
+
+`raspbot_demo/CMakeLists.txt` 里,加 find_package 并把两个目标的依赖更新:
+
+```cmake
+find_package(raspbot_interfaces REQUIRED)
+
+ament_target_dependencies(wheel_pub rclcpp raspbot_interfaces)
+ament_target_dependencies(wheel_sub rclcpp raspbot_interfaces)
+```
+
+(注意 `std_msgs` 可以从这两行去掉了——Header 是通过 raspbot_interfaces 间接带进来的,不用直接依赖。`hello_node` 那行不动。)
+
+
+
+4. **整体构建(这次 build 全部,因为有跨包依赖)**
+
+```bash
+cd ~/raspbot_ws
+colcon build
+source install/setup.bash
+```
+
+跨包依赖时 colcon 会**自动按依赖顺序**先编 `raspbot_interfaces` 再编 `raspbot_demo`——你不用管顺序,这也是 colcon 比裸 CMake 省心的地方。
+
+
+
+**收官 checkpoint**:
+
+1. 两个终端:`wheel_pub` 发四个轮速、`wheel_sub` 收到值 + 时间戳(数值递增、stamp 在变)。
+2. `ros2 topic echo /wheel_speed`:看完整结构化输出(header + 四字段)。
+3. `ros2 topic info /wheel_speed --verbose`(新东西,顺便认识):它会告诉你这个话题的**消息类型**是`raspbot_interfaces/msg/WheelSpeed`、有几个发布者几个订阅者、用什么 QoS
+
 ---
 
 
 
-### M2 — QoS 与 DDS 深化（你的全新领域，给足时间）
+### M2 — QoS 与 DDS 深化
 
 **目标**：吃透 QoS 策略组合，理解 DDS 发现，会测频率/延迟。
 
-**新概念**
 
-- QoS：RELIABILITY / DURABILITY / DEADLINE / HISTORY。
-- 选型直觉：传感器→BEST_EFFORT；控制→RELIABLE；状态→TRANSIENT_LOCAL。
-- Fast-DDS 原理、Domain、Participant、Discovery、多机通信。
-- RMW 选择（Fast-DDS vs Cyclone）了解即可；`ros2 topic hz/delay`。
 
-**为什么重点**：DDS 把可靠性做成正交可配的策略矩阵，是你 IEC104/Modbus 里没有的，面试常考。
+#### QoS 完整策略
 
-**产出物**：QoS 对照实验记录 + 端到端延迟测量报告。
-**估时**：4 天
+使用`topic info --verbose`可以查看`QoS`的**完整策略集**
+
+**Reliability:  ——可靠性**
+
+**Durability —— 持久性**
+
+**History (Depth） —— 历史策略**
+
+**Lifespan —— 消息保质期**
+
+**Deadline —— 超时告警**
+
+**Liveliness —— 发布者活性检测**
+
+这就是 QoS 的**完整策略集**——它不是一个开关,是一组**正交的策略**,每条独立配置,合起来定义"这条数据流的传输语义"。DDS 把它们标准化、可配置化了。
+
+
+
+####  1.Reliability可靠性
+
+**(RxO)兼容性**:
+
+- **发布者 = 提供方(Offered)**:它声明"我能提供什么级别的服务"。
+- **订阅者 = 请求方(Requested)**:它声明"我要求什么级别的服务"。
+- **规则:发布者提供的,必须 ≥ 订阅者要求的,才兼容。**
+
+套到 RELIABILITY 上(可靠性有高低:RELIABLE > BEST_EFFORT):
+
+| 发布者提供  | 订阅者要求  | 通不通     | 为什么                                                    |
+| ----------- | ----------- | ---------- | --------------------------------------------------------- |
+| RELIABLE    | BEST_EFFORT | ✅ 通       | 我提供"保证送达",你只要求"尽力",绰绰有余                  |
+| RELIABLE    | RELIABLE    | ✅ 通       | 供需一致                                                  |
+| BEST_EFFORT | BEST_EFFORT | ✅ 通       | 供需一致                                                  |
+| BEST_EFFORT | RELIABLE    | ❌ **不通** | 你**要求**"保证送达",我只**提供**"尽力"——满足不了你的要求 |
+
+
+
+修改车速轮的发布者和订阅者的代码，把他们都改成`BEST_EFFORT`，理由如下：
+
+- 轮速是**高频、连续、会过期**的量。这一帧丢了,50ms 后下一帧就来了,**重传一个 50ms 前的旧轮速毫无意义,反而增加延迟**。
+- 你要的是"最新值、低延迟",不是"一条都不能丢"。RELIABLE 的重传机制对这种数据是负担。
+
+```cpp
+rclcpp::QoS qos(10);
+qos.best_effort();
+sub_ = this->create_subscription<raspbot_interfaces::msg::WheelSpeed>(
+    "wheel_speed", qos,
+    std::bind(&WheelSub::on_msg, this, std::placeholders::_1));
+```
+
+
+
+#### 2.Durability持久性
+
+刚才 Reliability 解决的是"丢不丢包"。现在换个**正交**的策略:DURABILITY,解决的是"**晚来的订阅者,能不能补到它订阅之前就发过的数据**"。
+
+
+
+VOLATILE ：发布者只管当下,**订阅者连上之前发的所有数据,一概收不到**。
+
+RANSIENT_LOCAL：发布者**保留最后 N 条**,任何晚订阅的节点一连上,**立刻补发最新的那条**。
+
+
+
+**设置 TRANSIENT_LOCAL**
+
+```cpp
+rclcpp::QoS qos(1);
+qos.reliable();            // TRANSIENT_LOCAL 几乎总是配 RELIABLE 一起用,原因见下
+qos.transient_local();
+```
+
+**三个 DDS 特有的坑**
+
+1. **深度 N 由发布者的 HISTORY depth 决定**
+
+```cpp
+rclcpp::QoS qos(1);
+qos.reliable();
+qos.transient_local();
+```
+
+2. **为什么必须配 RELIABLE**
+
+TRANSIENT_LOCAL + BEST_EFFORT 是个**几乎无意义的组合**:你想"保证晚来的人补到最新状态",却又用"尽力而为、丢了不管"去发——自相矛盾。所以状态类数据的标准组合是 `RELIABLE + TRANSIENT_LOCAL + KEEP_LAST(1)`。把这三件套当成一个固定搭配记。
+
+3. **RxO 兼容性对 durability 同样是不对称的。**
+
+跟 reliability 一个道理:**发布者 TRANSIENT_LOCAL(提供更强)能喂 VOLATILE 的订阅者;反过来发布者 VOLATILE、订阅者要 TRANSIENT_LOCAL 就不兼容、静默不连。**
+
+ROS2 给"最新状态"这种场景预置了一个 QoS profile,叫 KeepLast + 你直接叠 durability,比逐个调方法更语义化:
+
+```cpp
+// 等价于上面那套三件套,更易读
+auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
+```
+
+链式调用,一行表达"保留最新1条、可靠、对晚订阅者持久"。这是状态发布的惯用写法
+
+
+
+#### 3.DEADLINE超时检测
+
+**语义**:在话题上声明一个承诺"**两次发布的间隔不会超过 X**"。如果发布者真的超了(或订阅者在 X 内没等到),DDS **自动触发一个回调**通知你违约了。
+
+**接口：**
+
+```cpp
+rclcpp::QoS qos(10);
+qos.deadline(rclcpp::Duration(0, 200'000'000));  // 200ms (sec, nanosec)
+```
+
+但光设 deadline 只是声明承诺,你得**注册违约回调**才能收到通知。这通过 publisher/subscription 的 options 挂:
+
+```cpp
+rclcpp::SubscriptionOptions opts;
+opts.event_callbacks.deadline_callback =
+  [this](rclcpp::QOSDeadlineRequestedInfo & event) {
+    RCLCPP_WARN(this->get_logger(),
+      "超声波 deadline 违约！累计 %d 次", event.total_count);
+  };
+
+sub_ = this->create_subscription<...>(
+    "ultrasonic", qos, callback, opts);   // ← 把 opts 传进去
+```
+
+**为什么这对你 M12 是关键武器**:你大纲里 health_monitor 要做"传感器 >200ms 没数据 → 告警"。**没有 DEADLINE,你得自己**:存上一帧时间戳 → 起个定时器 → 每个 tick 比对 now - last_stamp > 200ms → 触发告警。一个传感器一套,十个传感器十套,还容易写错边界。**有了 DEADLINE,你只声明"这个话题承诺 200ms 一帧",违约 DDS 自动回调你**——超时检测从"你的业务逻辑"下沉成了"中间件的 QoS 保证"。这正是框架替你做脏活的地方。
+
+**RxO 兼容性**(又是这条规则,你已经熟了):订阅者请求的 deadline period 必须 **≥** 发布者提供的。发布者承诺"≤200ms 一帧",订阅者要求"≤500ms 就行",兼容(发布者发得比你要求的还勤);反过来订阅者要求 100ms、发布者只承诺 200ms,不兼容。
+
+
+
+
+
+#### 4.LIVELINESS — 发布者"活着吗"
+
+**语义**:DEADLINE 管"数据来得够不够勤",LIVELINESS 管"**发布者这个实体还活着吗**"。区别很微妙但重要:
+
+- DEADLINE 违约 = "这一路数据流断了/变慢了"(可能发布者还活着,只是这个话题没数据了)。
+- LIVELINESS 丢失 = "**发布者这个节点本身假死/没心跳了**"(它所有话题可能一起没了)。
+
+**接口**(了解即可,M12 才用):
+
+```cpp
+rclcpp::QoS qos(10);
+qos.liveliness(rclcpp::LivelinessPolicy::Automatic);
+qos.liveliness_lease_duration(rclcpp::Duration(1, 0));  // 1秒没心跳判定失活
+```
+
+`Automatic` 模式下,只要发布者进程在正常跑 DDS 协议栈,DDS 自动帮它"续租"心跳;进程崩了/卡死,租约到期,订阅端收到 liveliness 丢失回调。
+
+
+
+#### 策略全景总结
+
+你现在手里这套 QoS 策略,本质是**一组正交的传输契约**,每条独立配,合起来定义一条数据流的语义:
+
+| 策略            | 管什么                | 你的典型选择                          |
+| --------------- | --------------------- | ------------------------------------- |
+| **Reliability** | 丢不丢包              | 传感器→BEST_EFFORT;控制/状态→RELIABLE |
+| **Durability**  | 晚订阅者补不补历史    | 状态→TRANSIENT_LOCAL;流数据→VOLATILE  |
+| **History**     | 缓存几条              | KEEP_LAST(N),状态常用 N=1             |
+| **Deadline**    | 发布频率契约+违约告警 | M12 传感器掉线检测                    |
+| **Liveliness**  | 发布者活性心跳        | M12 节点崩溃检测                      |
+
+记住贯穿全部的那条**不对称兼容规则**:发布者"提供"的服务等级必须 **≥** 订阅者"请求"的,否则静默不连。这是 QoS 所有调试的总纲。
+
+
 
 ---
 
@@ -9333,57 +9714,973 @@ ros2 run raspbot_demo wheel_sub
 
 **目标**：service 端/客户端 + 自定义 srv；完整 action。
 
-**新概念**
 
-- service / client、自定义 srv、同步 vs 异步。
-- action：goal/feedback/result/cancel，自定义 action。
 
-**复用/全新**：service ≈ 读写寄存器（正好像你 0x2B 板的读写）；action 是你协议里没有的全新概念，重点。
+#### Service
 
-**产出物**：查询服务（读系统状态）+ 长任务 action（原地转 90°，带进度反馈）。
-**估时**：4 天
+```
+客户端 ──── Request ───▶ 服务端
+client                  server
+       ◀─── Response ──
+```
+
+Topic 是"广播,发了不管,多对多";Service 是"**点对点的一问一答,有去必有回**"。
+
+你发一个请求,**阻塞等**一个应答。典型场景:查询(读机器人状态)、一次性命令(复位某个模块)、配置(改个参数)。
+
+跟 Topic 的本质区别:Topic 没有"谁收到了""处理完没有"的概念;Service 是**确定的一对一事务**,你知道请求被谁处理了、拿到了它的应答。
+
+
+
+##### **Step 1 — 定义 .srv 文件**
+
+`.srv` 跟你 M1 写的 `.msg` 是同一套生成机制,只是它分**请求**和**应答**两部分,用 `---` 隔开。
+
+建 `raspbot_interfaces/srv/GetStatus.srv`:
+
+```bash
+mkdir -p ~/raspbot_ws/src/raspbot_interfaces/srv
+cat > ~/raspbot_ws/src/raspbot_interfaces/srv/GetStatus.srv << 'EOF'
+# === 请求(Request)===  客户端发给服务端的
+# (这里为空：查询当前状态不需要任何参数)
+---
+# === 应答(Response)=== 服务端返回给客户端的
+string state
+uint32 uptime_sec
+EOF
+```
+
+读这个文件:`---` 上面是**请求字段**(这次为空,因为"查状态"不需要参数),下面是**应答字段**(返回状态字符串 + 运行了多少秒)。对比你 M1 的 `.msg` 只有字段没有 `---`——`.srv` 多了这条分割线,因为它要描述"一来一回"两个方向的数据。
+
+
+
+##### Step 2 — 在 CMake 里注册它
+
+`raspbot_interfaces/CMakeLists.txt`,把 srv 加进 `rosidl_generate_interfaces`(就是你 M1 加 WheelSpeed 那块):
+
+```cmake
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/WheelSpeed.msg"
+  "srv/GetStatus.srv"
+  DEPENDENCIES std_msgs
+)
+```
+
+(就多了 `"srv/GetStatus.srv"` 这一行。`package.xml` 不用改,Service 不需要额外依赖。)
+
+build 接口包验证生成:
+
+```bash
+cd ~/raspbot_ws
+colcon build --packages-select raspbot_interfaces
+source install/setup.bash
+ros2 interface show raspbot_interfaces/srv/GetStatus
+```
+
+`ros2 interface show` 这次会把请求和应答**用 `---` 分开**显示给你看——确认生成对了。
+
+
+
+##### Step 3 — 写服务端节点
+
+新建 `raspbot_demo/src/status_server.cpp`:
+
+```cpp
+#include "rclcpp/rclcpp.hpp"
+#include "raspbot_interfaces/srv/get_status.hpp"   // snake_case,跟 msg 一样
+
+class StatusServer : public rclcpp::Node
+{
+public:
+  StatusServer() : Node("status_server")
+  {
+    start_time_ = this->now();
+    // 创建服务：服务名 "get_status"，绑定处理回调
+    srv_ = this->create_service<raspbot_interfaces::srv::GetStatus>(
+        "get_status",
+        std::bind(&StatusServer::handle, this,
+                  std::placeholders::_1, std::placeholders::_2));
+    RCLCPP_INFO(this->get_logger(), "status_server 就绪，等待查询");
+  }
+
+private:
+  // 服务回调：两个参数 —— 请求进(req)、应答出(res)
+  void handle(const std::shared_ptr<raspbot_interfaces::srv::GetStatus::Request> req,
+              std::shared_ptr<raspbot_interfaces::srv::GetStatus::Response> res)
+  {
+    (void)req;   // 这次请求是空的，用不到，显式忽略避免编译警告
+    res->state = "IDLE";
+    res->uptime_sec = (this->now() - start_time_).seconds();
+    RCLCPP_INFO(this->get_logger(), "收到查询，返回 state=%s uptime=%u",
+                res->state.c_str(), res->uptime_sec);
+    // 注意：没有 return 值。填好 res 就是应答，框架负责发回去
+  }
+
+  rclcpp::Service<raspbot_interfaces::srv::GetStatus>::SharedPtr srv_;
+  rclcpp::Time start_time_;
+};
+
+int main(int argc, char ** argv)
+{
+  rclcpp::init(argc, argv);
+  rclcpp::spin(std::make_shared<StatusServer>());
+  rclcpp::shutdown();
+  return 0;
+}
+```
+
+服务端回调的核心,**对比你 M1 的订阅回调**:订阅回调是**单参数**(只有进来的消息);
+
+服务回调是**双参数**——`req` 进、`res` 出,你**填 `res` 就等于回了应答**,不用 return。
+
+这是 Service 和 Topic 在代码形态上最直观的区别。
+
+
+
+##### Step 4 — 先用命令行测
+
+服务端写好后,**先不写客户端代码**,用命令行当客户端测——这样能把"服务端通不通"和"客户端怎么写"两个问题隔离开(还是你熟的隔离变量思路)。
+
+CMakeLists 注册服务端(加可执行文件 + 依赖 + install):
+
+```cmake
+add_executable(status_server src/status_server.cpp)
+ament_target_dependencies(status_server rclcpp raspbot_interfaces)
+
+# 把 status_server 加进原来的 install(TARGETS ...) 那行
+install(TARGETS hello_node wheel_pub wheel_sub status_server
+  DESTINATION lib/${PROJECT_NAME})
+```
+
+build + 跑:
+
+```bash
+cd ~/raspbot_ws
+colcon build --packages-select raspbot_demo
+source install/setup.bash
+
+# 终端 1：起服务端
+ros2 run raspbot_demo status_server
+
+# 终端 2：用命令行当客户端调用它
+source install/setup.bash
+ros2 service list                                          # 看到 /get_status 没
+ros2 service call /get_status raspbot_interfaces/srv/GetStatus   # 调用它
+```
+
+
+
+
+
+##### Step 5 — 写客户端节点
+
+刚才你用的是命令行 `ros2 service call`,它替你把"异步等待"处理好了,所以没踩坑。但**当你要在一个节点的回调里去调用别的服务时**,坑就来了。这是 Service 最容易让人栽的地方,我让你先**亲眼见到死锁**,再给正确写法——踩一次,终身不忘。
+
+
+
+**先讲清楚坑的机理:**
+
+`spin()` 跑的 executor 是**单线程**的——它一次只能处理一个回调。
+
+现在设想你在某个回调里这么写:"调用 get_status 服务 → **同步等**它返回"。
+
+问题是:**等待这个动作本身正占着 executor 唯一的线程**,而服务的应答**也需要这个 executor 线程去接收处理**。
+
+于是:你占着线程等应答,应答等着线程来处理——**自己等自己,死锁。**
+
+ROS2 默认单线程 executor,**在回调里同步等服务 = 必死锁**。
+
+所以 ROS2 的铁律:**客户端用 `async_send_request()`,拿一个 future,绝不在回调里 spin 等它。**
+
+写 `raspbot_demo/src/status_client.cpp`:
+
+```cpp
+#include "rclcpp/rclcpp.hpp"
+#include "raspbot_interfaces/srv/get_status.hpp"
+#include <chrono>
+
+using namespace std::chrono_literals;
+
+class StatusClient : public rclcpp::Node
+{
+public:
+  StatusClient() : Node("status_client")
+  {
+    client_ = this->create_client<raspbot_interfaces::srv::GetStatus>("get_status");
+  }
+
+  void send_query()
+  {
+    // 1. 先等服务端上线（最多等 5 秒）
+    while (!client_->wait_for_service(1s)) {
+      if (!rclcpp::ok()) return;
+      RCLCPP_INFO(this->get_logger(), "等待 get_status 服务上线...");
+    }
+
+    // 2. 构造请求（这次为空），异步发送
+    auto req = std::make_shared<raspbot_interfaces::srv::GetStatus::Request>();
+    auto future = client_->async_send_request(req);
+
+    // 3. 关键：在 main 里用 spin_until_future_complete 等结果
+    //    注意这是在【节点外部】等，不是在回调里等——所以不死锁
+    if (rclcpp::spin_until_future_complete(this->get_node_base_interface(), future)
+        == rclcpp::FutureReturnCode::SUCCESS)
+    {
+      auto res = future.get();
+      RCLCPP_INFO(this->get_logger(), "查询结果: state=%s uptime=%u",
+                  res->state.c_str(), res->uptime_sec);
+    } else {
+      RCLCPP_ERROR(this->get_logger(), "服务调用失败");
+    }
+  }
+
+private:
+  rclcpp::Client<raspbot_interfaces::srv::GetStatus>::SharedPtr client_;
+};
+
+int main(int argc, char ** argv)
+{
+  rclcpp::init(argc, argv);
+  auto node = std::make_shared<StatusClient>();
+  node->send_query();        // 调一次就退出（一次性查询客户端）
+  rclcpp::shutdown();
+  return 0;
+}
+```
+
+**注意这个写法绕开死锁的关键**:我没有在某个订阅/定时器回调里调服务,而是在 `main` 里调 `send_query()`,用 `spin_until_future_complete` 在**节点外层**驱动 executor 去等 future——这时 executor 是空闲的、能去处理应答,所以不锁。
+
+**那"在回调里调服务"到底怎么办?**(这是真实场景:比如状态机回调里要查个服务)——正解是 `async_send_request` 时**挂一个回调**处理结果,发完立刻返回、不等,结果到了让 executor 回调你。这个进阶写法 M11 状态机真用到时我再给你,现在先把"为什么不能同步等 + 一次性查询怎么写"立住。
+
+CMakeLists 注册客户端:
+
+```cmake
+add_executable(status_client src/status_client.cpp)
+ament_target_dependencies(status_client rclcpp raspbot_interfaces)
+
+# 加进 install
+install(TARGETS hello_node wheel_pub wheel_sub status_server status_client
+  DESTINATION lib/${PROJECT_NAME})
+```
+
+build + 跑(服务端要开着):
+
+```bash
+cd ~/raspbot_ws
+colcon build --packages-select raspbot_demo
+source install/setup.bash
+
+# 终端 1：服务端
+ros2 run raspbot_demo status_server
+
+# 终端 2：客户端(跑一次就退出)
+source install/setup.bash
+ros2 run raspbot_demo status_client
+```
+
+
+
+**为什么这样写不会死锁？**
+
+|                                    | 你的代码(安全)                  | 死锁写法                        |
+| ---------------------------------- | ------------------------------- | ------------------------------- |
+| 谁调的`spin_until_future_complete` | `send_query`(main 里的普通函数) | 某个回调里(比如订阅回调)        |
+| 调用时 executor 状态               | **空闲**(没跑任何回调)          | **正忙**(正在跑那个回调)        |
+| 结果                               | executor 自由转圈,收到应答      | executor 被回调占着,转不动,卡死 |
+
+**核心区别就一个:调 `spin_until_future_complete` 的那一刻,executor 是不是正被某个回调占用。**
+
+你的代码里,调用它的是 main 里的普通函数 `send_query`,那一刻没有任何回调在跑 → executor 空闲 → 安全。
+ 死锁写法里,调用它的是一个**正在被 executor 执行的回调** → executor 被这个回调占着 → 它没法再去转圈 → 死锁。
+
+- **普通函数(send_query)里** 调 `spin_until_future_complete` → 此刻 executor 空闲 → ✅
+- **回调里** 调 `spin_until_future_complete` → 此刻 executor 正忙(在跑这个回调)→ ❌ 死锁
+
+
+
+
+
+#### Action
+
+**Action 的执行模型:为什么它比 Service 复杂**
+
+先把 Action 要解决的矛盾摆出来,你就懂它为什么"麻烦"了:
+
+转 90 度要执行几秒。如果你像 Service 那样,在一个回调里"转完才返回"——那就**长时间占着 executor 唯一的线程几秒钟**,这几秒里这个节点的其他回调(订阅传感器、响应取消)全饿死。这正是你刚理解的反模式。
+
+所以 Action **必须**把"长任务的执行"从 executor 主循环里挪出去。ROS2 的标准做法:**execute 在一个单独的线程里跑**。这就引出 Action 的整个结构。
+
+
+
+**Action 服务端的三个回调 + 一个执行体**
+
+```
+客户端发 goal
+     │
+     ▼
+① handle_goal      ← executor 调:决定接受还是拒绝这个目标
+     │ (接受)
+     ▼
+② handle_accepted  ← executor 调:目标被接受了,该启动执行了
+     │              这里【另起一个线程】跑 execute,立刻返回,不占 executor
+     ▼
+   execute (独立线程) ← 真正干活:循环转动、每步 publish_feedback、检查取消、最后 set result
+     ▲
+     │
+③ handle_cancel    ← executor 调:客户端要取消,你同意不同意
+```
+
+三个回调(①②③)都是 executor 在主线程上调的,**必须秒回**——它们只做决策(接受/拒绝/启动/同意取消),不干重活。真正的重活在 `execute`,跑在**自己的线程**上,所以不堵 executor。这就是 Action 比 Service 多出来的核心结构。
+
+
+
+##### Step 1 — 建`.action`文件
+
+```bash
+mkdir -p ~/raspbot_ws/src/raspbot_interfaces/action
+cat > ~/raspbot_ws/src/raspbot_interfaces/action/Rotate.action << 'EOF'
+# === Goal === 发起任务时给的目标
+float64 target_angle_deg
+---
+# === Result === 任务结束返回一次
+float64 actual_angle_deg
+bool success
+---
+# === Feedback === 执行中持续推送
+float64 current_angle_deg
+EOF
+```
+
+三段、两条 `---`:Goal(目标角度)/ Result(最终角度+成功否)/ Feedback(实时角度)。对比你 M3 刚写的 `.srv` 只有一条 `---`——多出来的第三段 Feedback,就是 Action 比 Service 强的地方:执行中能持续推进度。
+
+
+
+ **在接口包注册它**
+
+`raspbot_interfaces/CMakeLists.txt`,把 action 加进 `rosidl_generate_interfaces`(就是 M1 加 WheelSpeed、M3 加 GetStatus 的那块):
+
+```cmake
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/WheelSpeed.msg"
+  "srv/GetStatus.srv"
+  "action/Rotate.action"
+  DEPENDENCIES std_msgs
+)
+```
+
+`raspbot_interfaces/package.xml` 加一行(action 需要 `action_msgs` 提供底层的 goal-status 机制):
+
+```xml
+<depend>action_msgs</depend>
+```
+
+
+
+**build 接口包,验证生成**
+
+```bash
+cd ~/raspbot_ws
+colcon build --packages-select raspbot_interfaces
+source install/setup.bash
+
+# 现在这个头才真正被生成出来,验证它存在:
+find ~/raspbot_ws/install/raspbot_interfaces -name "rotate.hpp"
+
+# 让 ROS2 确认认识这个 action 类型:
+ros2 interface show raspbot_interfaces/action/Rotate
+```
+
+
+
+##### Step 2 — Action服务端代码
+
+**完整服务端代码**
+
+`raspbot_demo/src/rotate_server.cpp`：
+
+```cpp
+#include "rclcpp/rclcpp.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
+#include "raspbot_interfaces/action/rotate.hpp"
+#include <thread>
+
+class RotateServer : public rclcpp::Node
+{
+public:
+  using Rotate = raspbot_interfaces::action::Rotate;
+  using GoalHandle = rclcpp_action::ServerGoalHandle<Rotate>;
+
+  RotateServer() : Node("rotate_server")
+  {
+    // 创建 action 服务端：动作名 "rotate"，绑定三个回调
+    server_ = rclcpp_action::create_server<Rotate>(
+        this, "rotate",
+        std::bind(&RotateServer::handle_goal, this, std::placeholders::_1, std::placeholders::_2),
+        std::bind(&RotateServer::handle_cancel, this, std::placeholders::_1),
+        std::bind(&RotateServer::handle_accepted, this, std::placeholders::_1));
+    RCLCPP_INFO(this->get_logger(), "rotate_server 就绪");
+  }
+
+private:
+  // ① 收到 goal：决定接受/拒绝。executor 调，必须秒回
+  rclcpp_action::GoalResponse handle_goal(
+      const rclcpp_action::GoalUUID & /*uuid*/,
+      std::shared_ptr<const Rotate::Goal> goal)
+  {
+    RCLCPP_INFO(this->get_logger(), "收到目标：转 %.1f 度", goal->target_angle_deg);
+    if (std::abs(goal->target_angle_deg) > 360.0) {
+      RCLCPP_WARN(this->get_logger(), "角度过大，拒绝");
+      return rclcpp_action::GoalResponse::REJECT;
+    }
+    return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+  }
+
+  // ③ 收到取消请求：同意/拒绝。executor 调，秒回
+  rclcpp_action::CancelResponse handle_cancel(
+      const std::shared_ptr<GoalHandle> /*gh*/)
+  {
+    RCLCPP_INFO(this->get_logger(), "收到取消请求，同意");
+    return rclcpp_action::CancelResponse::ACCEPT;
+  }
+
+  // ② 目标已接受：启动执行。关键——另起线程跑 execute，立刻返回
+  void handle_accepted(const std::shared_ptr<GoalHandle> gh)
+  {
+    std::thread{std::bind(&RotateServer::execute, this, gh)}.detach();
+  }
+
+  // 真正干活，跑在独立线程，不占 executor
+  void execute(const std::shared_ptr<GoalHandle> gh)
+  {
+    const auto goal = gh->get_goal();
+    auto feedback = std::make_shared<Rotate::Feedback>();
+    auto result = std::make_shared<Rotate::Result>();
+
+    rclcpp::Rate rate(10);          // 10Hz，每 100ms 一步
+    double current = 0.0;
+    const double step = goal->target_angle_deg / 20.0;   // 假装 2 秒转完(20 步)
+
+    while (std::abs(current) < std::abs(goal->target_angle_deg) && rclcpp::ok()) {
+      // 每一步先检查：客户端要取消吗？
+      if (gh->is_canceling()) {
+        result->actual_angle_deg = current;
+        result->success = false;
+        gh->canceled(result);                      // 标记为已取消
+        RCLCPP_INFO(this->get_logger(), "已取消，停在 %.1f 度", current);
+        return;
+      }
+      current += step;                             // 假装转动(M4 换成读真实角度)
+      feedback->current_angle_deg = current;
+      gh->publish_feedback(feedback);              // 推送进度
+      RCLCPP_INFO(this->get_logger(), "转动中... %.1f 度", current);
+      rate.sleep();
+    }
+
+    result->actual_angle_deg = current;
+    result->success = true;
+    gh->succeed(result);                           // 标记成功 + 返回结果
+    RCLCPP_INFO(this->get_logger(), "完成，最终 %.1f 度", current);
+  }
+
+  rclcpp_action::Server<Rotate>::SharedPtr server_;
+};
+
+int main(int argc, char ** argv)
+{
+  rclcpp::init(argc, argv);
+  rclcpp::spin(std::make_shared<RotateServer>());
+  rclcpp::shutdown();
+  return 0;
+}
+```
+
+`handle_goal`/`handle_cancel`/`handle_accepted` 三个回调都极短,只做决策——它们由 executor 调,不能堵。
+
+`handle_accepted` 里 `std::thread{...}.detach()` 把 `execute` 甩到独立线程,**立刻返回**,executor 主循环立刻空出来
+
+`execute` 在独立线程跑那个 while 循环(转动 + feedback + 检查取消),它占的是**自己的线程**,跟 executor 无关。`gh->is_canceling()` 每步检查取消——这就是 Action 比 Service 多的"可中途取消"能力。
+
+
+
+**CMake 配置(Action 需要新依赖)**
+
+`raspbot_demo/package.xml` 加:
+
+```xml
+<depend>rclcpp_action</depend>
+```
+
+`raspbot_demo/CMakeLists.txt`:
+
+```cmake
+find_package(rclcpp_action REQUIRED)
+
+add_executable(rotate_server src/rotate_server.cpp)
+ament_target_dependencies(rotate_server rclcpp rclcpp_action raspbot_interfaces)
+
+install(TARGETS hello_node wheel_pub wheel_sub status_server status_client rotate_server
+  DESTINATION lib/${PROJECT_NAME})
+```
+
+**build+测试：**
+
+```bash
+cd ~/raspbot_ws
+colcon build
+source install/setup.bash
+
+# 终端 1：起 action 服务端
+ros2 run raspbot_demo rotate_server
+
+# 终端 2：命令行发一个 goal,带 --feedback 看实时反馈
+
+# 1. 正常执行，等待执行结束
+source install/setup.bash
+ros2 action send_goal /rotate raspbot_interfaces/action/Rotate "{target_angle_deg: 90}" --feedback
+
+# 2. 接受/拒绝门 —— 发个超界的目标,看 handle_goal 拒绝它:
+ros2 action send_goal /rotate raspbot_interfaces/action/Rotate "{target_angle_deg: 9999}"
+
+# 3. 中途取消 —— 发个正常目标,执行中 Ctrl-C 掐掉:
+ros2 action send_goal /rotate raspbot_interfaces/action/Rotate "{target_angle_deg: 180}" --feedback
+# 看到转到一半(比如 90 度左右),立刻按 Ctrl-C
+```
+
+
+
+**总结**
+
+**Action**:长任务的标准范式——三回调(接受/取消/启动)秒回 + execute 甩独立线程 + feedback/result/cancel 三段语义。这套 M14 Nav2 直接复用(导航就是个大 action)。
+
+
 
 ---
 
 
 
-### M4 — C++ HAL 移植 + chassis_driver（你的主场）
+### M4 — Raspbot驱动库移植
 
-**目标**：把官方 Python 库**翻译成 C++ HAL**（`RaspbotBoard` 类），再包成订阅 `/cmd_vel` 的 chassis_driver 节点。
 
-**核心任务：Python 库 → C++ HAL**
-官方 Python 库不是依赖，是协议规格书。这事和你三年逆向工业协议、用 C++ 重写协议栈一模一样。在你 Linux 阶段 `I2CDevice` 类（已 open `/dev/i2c-1`、做过 `ioctl(I2C_SLAVE)`）上加寄存器读写，照〇节那张表实现：
 
-```cpp
-// 写电机  Python: write_i2c_block_data(0x2B, 0x01, [id,dir,speed])
-uint8_t buf[3] = {id, dir, speed};
-i2c_smbus_write_i2c_block_data(fd_, 0x01, 3, buf);          // 链接 -li2c
+##### **Step 0 准备 — 先在命令行确认 I2C 能通**
 
-// 读超声  Python: (read(0x1b)<<8)|read(0x1a)
-uint8_t hi = i2c_smbus_read_byte_data(fd_, 0x1b);
-uint8_t lo = i2c_smbus_read_byte_data(fd_, 0x1a);
-uint16_t dist_mm = (hi << 8) | lo;
+写代码前,先用现成工具确认硬件链路是通的,省得待会儿代码报错时分不清是代码问题还是接线问题。
 
-// 读循迹  Python: read(0x0a) → bit[3:0]
-uint8_t t = i2c_smbus_read_byte_data(fd_, 0x0a);
-bool x1=(t>>3)&1, x2=(t>>2)&1, x3=(t>>1)&1, x4=t&1;
+```bash
+# 装 i2c 工具(如果没有)
+sudo apt install i2c-tools libi2c-dev -y
+
+# 扫 bus 1,看 0x2B 在不在
+i2cdetect -y 1
 ```
 
-`sudo apt install libi2c-dev`，链接 `-li2c`；或零依赖用 `ioctl(fd, I2C_RDWR, ...)` 双消息（写 reg + repeated-start 读 N）自己做。**ros2_control 的 hardware_interface 必须 C++，所以这个 HAL M4 写一次、M9 直接复用，不浪费。**
+`i2cdetect` 会打出一张表,**如果 0x2B 这个地址那格显示 `2b`(而不是 `--`),说明驱动板在线、I2C 链路通**。
 
-**新概念**
 
-- 0x2B 寄存器协议的 C++ 实现、I2C 块读写、repeated-start。
-- `geometry_msgs/Twist`、`/cmd_vel` 约定。
-- 麦克纳姆轮逆运动学：(vx, vy, ω) → 四轮 PWM。
-- 真车前馈标定：测 "PWM 150 ≈ 0.X m/s"（随地面/电量漂，标注清楚）。
 
-**复用你的**：I2C 驱动（0x3C OLED）直接迁到 0x2B 板——你的协议移植功底就是差异化。事件驱动 ChassisDriver 的"来指令→解算→下发"链路对应订阅回调。
+##### Step 1 — 代码测试0x2B 协议
 
-**真车/仿真**：真车 = `/cmd_vel → 解算 → 开环 PWM`；闭环 PID 放仿真（M13）。
+这一步**纯 C++,不碰 ROS2**。隔离变量测试：
 
-**产出物**：键盘 teleop → **真车第一次动起来**（开始录演示素材）+ 一个干净的 `RaspbotBoard` C++ HAL（GitHub 单独可见的亮点）。
-**估时**：5–6 天
+**先对着 Python 库把协议读一遍**
+
+**写电机**(`Ctrl_Car`):reg `0x01`,3 字节 `[motor_id, dir, speed]`
+
+- motor_id: 0=L1, 1=L2, 2=R1, 3=R2
+- dir: 0=前, 1=后
+- speed: 0~255
+
+
+
+**读超声**(先 `Ctrl_Ulatist_Switch` 开,再读):
+
+- 开关:写 reg `0x07`,1 字节 `[1]`(开)/`[0]`(关)
+- 读距离:reg `0x1a` 读低字节、`0x1b` 读高字节,`dist_mm = (hi<<8)|lo`
+
+
+
+**读循迹**:reg `0x0a` 读 1 字节,`x1=(v>>3)&1, x2=(v>>2)&1, x3=(v>>1)&1, x4=v&1`
+
+
+
+**C++ HAL 设计**
+
+建一个**独立测试目录**(先不进 ROS 包):
+
+```bash
+mkdir -p ~/hal_test && cd ~/hal_test
+```
+
+`raspbot_board.hpp`:
+
+```cpp
+#pragma once
+#include <cstdint>
+#include <string>
+
+class RaspbotBoard{
+public:
+    explicit RaspbotBoard(const std::string& dev = "/dev/i2c-1", uint8_t addr = 0x2B);
+    ~RaspbotBoard();
+
+    // 禁止拷贝
+    RaspbotBoard(const RaspbotBoard &) = delete;
+    RaspbotBoard & operator=(const RaspbotBoard &) = delete;
+
+    // 电机：id 0~3, dir 0前/1后, speed 0~255
+    void set_motor(uint8_t id, uint8_t dir, uint8_t speed);
+    // 便捷：带符号速度 -255~255，自动拆方向
+    void set_motor_signed(uint8_t id, int16_t speed);
+    void stop_all();
+
+    // 传感器
+    void ultrasonic_switch(bool on);
+    uint16_t read_distance_mm();
+    uint8_t read_tracking();    // 返回原始字节，bit3..0 = x1..x4
+
+private:
+    void write_reg_bytes(uint8_t reg, const uint8_t* data, uint8_t len);
+    uint8_t read_reg_byte(uint8_t reg);
+
+    int fd_{-1};
+    uint8_t addr_;
+};
+```
+
+`raspbot_board.cpp`:
+
+```cpp
+#include "raspbot_board.hpp"
+#include <cstdint>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/ioctl.h>
+
+#include <linux/i2c-dev.h>
+extern "C" {
+#include <i2c/smbus.h>
+}
+
+#include <stdexcept>
+#include <cstring>
+
+RaspbotBoard::RaspbotBoard(const std::string& dev, uint8_t addr)
+    : addr_(addr)
+{
+    fd_ = ::open(dev.c_str(), O_RDWR);
+    if(fd_ < 0) 
+        throw std::runtime_error("打开 " + dev + " 失败: " + std::strerror(errno));
+    if(::ioctl(fd_, I2C_SLAVE, addr_) < 0)
+    {
+        ::close(fd_);
+        throw std::runtime_error("设置从机地址失败");
+    }
+}
+
+RaspbotBoard::~RaspbotBoard()
+{
+    if(fd_ >= 0)
+    {
+        stop_all(); // 析构时确保电机停 —— 安全！
+        ::close(fd_);
+    }
+}
+
+void RaspbotBoard::write_reg_bytes(uint8_t reg, const uint8_t* data, uint8_t len){
+    if(i2c_smbus_write_i2c_block_data(fd_, reg, len, data) < 0)
+        throw std::runtime_error("I2C 写失败 reg=" + std::to_string(reg));
+}
+
+uint8_t RaspbotBoard::read_reg_byte(uint8_t reg){
+    int v = i2c_smbus_read_byte_data(fd_,reg);
+    if(v < 0) throw std::runtime_error("I2C 读失败 reg=" + std::to_string(reg));
+    return static_cast<uint8_t>(v);
+}
+
+void RaspbotBoard::set_motor(uint8_t id, uint8_t dir, uint8_t speed){
+    uint8_t buf[3] = {id, dir, speed};
+    write_reg_bytes(0x01, buf, 3);
+}
+
+void RaspbotBoard::set_motor_signed(uint8_t id, int16_t speed){
+    if(speed > 255) speed = 255;
+    if(speed < -255) speed = -255;
+    uint8_t dir = (speed < 0) ? 1 : 0;
+    set_motor(id, dir, static_cast<uint8_t>(std::abs(speed)));
+}
+
+void RaspbotBoard::stop_all(){
+    for(uint8_t id = 0; id < 4; ++id) set_motor(id, 0, 0);
+}
+
+void RaspbotBoard::ultrasonic_switch(bool on){
+    uint8_t v = on ? 1 : 0;
+    write_reg_bytes(0x07, &v, 1);
+}
+
+uint16_t RaspbotBoard::read_distance_mm(){
+    uint8_t lo = read_reg_byte(0x1a);
+    uint8_t hi = read_reg_byte(0x1b);
+    return static_cast<uint16_t>((hi << 8) | lo);
+}
+
+uint8_t RaspbotBoard::read_tracking(){
+    return read_reg_byte(0x0a);
+}
+
+
+
+
+```
+
+`main.cpp`(测试程序,**安全设计**:小速度、短时间、结束停):
+
+```cpp
+#include "raspbot_board.hpp"
+#include <cstdint>
+#include <cstdio>
+#include <thread>
+#include <chrono>
+
+int main(){
+    try{
+        RaspbotBoard board; // 默认 /dev/i2c-1, 0x2B
+        printf("HAL 初始化成功\n");
+
+        // 1. 读超声(车架空也能读,先验证读链路)
+        board.ultrasonic_switch(true);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        printf("超声距离: %u mm\n", board.read_distance_mm());
+
+        // 2. 读循迹
+        printf("循迹原始值: 0x%02x\n", board.read_tracking());
+
+        // 3. 电机：每个轮子单独转 1 秒(小速度 60),依次验证 4 个轮子
+        for(uint8_t id = 0; id < 4; ++id){
+            printf("电机 %u 前进...\n", id);
+            board.set_motor(id, 0, 60);
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            board.set_motor(id, 0, 0);
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        }
+
+        board.stop_all();   // 显式停(析构也会停,双保险)
+        printf("测试完成,电机已停\n");
+
+    } catch (const std::exception & e){
+        printf("错误: %s\n", e.what());
+        return 1;
+    }
+    return 0;
+}
+```
+
+编译运行：
+
+```bash
+cd ~/hal_test
+g++ -std=c++17 main.cpp raspbot_board.cpp -o hal_test -li2c
+./hal_test
+```
+
+
+
+##### Step 2 — 麦轮解算验证
+
+麦轮的神奇之处:辊子是斜 45° 的,所以每个轮子转动时,除了产生前后的力,还产生一个**侧向分力**。
+
+车的运动用三个量描述(车体坐标系):
+
+- **vx**:前后速度(前为正)
+- **vy**:左右速度(左为正)—— 这就是麦轮特有的"横移"
+- **ω** (wz):旋转角速度(逆时针为正)
+
+逆运动学就是把 `(vx, vy, ω)` 解算成四个轮速。标准麦轮公式(轮子按 你的 L1/L2/R1/R2 布局):
+
+```
+v_L1 = vx - vy - ωk     前左
+v_L2 = vx + vy - ωk     后左
+v_R1 = vx + vy + ωk     前右
+v_R2 = vx - vy + ωk     后右
+```
+
+
+
+![mecanum_wheel_motion_composition](./assets/mecanum_wheel_motion_composition.svg)
+
+**1. 前进/后退最简单——四轮同向。** 全绿=前进,全红=后退。四个轮子的侧向分力互相抵消,只剩前后合力。
+
+**2. 左移/右移是麦轮的招牌——对角线同向。** 看"左移":**L1 和 R2(一条对角线)反转,L2 和 R1(另一条对角线)正转**。
+
+**3. 左转/右转——左右两侧反向。** 看"左转":左边两轮(L1/L2)全红、右边两轮(R1/R2)全绿 → 左侧后退、右侧前进 → 整车原地逆时针转。
+
+公式代码：
+
+```cpp
+// === 麦轮解算验证(车架空)===
+    // 简易解算 lambda：输入车体速度,输出并下发四轮
+    auto drive = [&](double vx, double vy, double wz, const char* name) {
+      printf(">>> %s (vx=%.1f vy=%.1f wz=%.1f)\n", name, vx, vy, wz);
+      double k = 1.0;                       // 先用 1，M5 再标定真实值
+      double scale = 60.0;                  // 把归一化速度放大到 PWM 量级
+      int16_t l1 = (vx - vy - wz*k) * scale;
+      int16_t l2 = (vx + vy - wz*k) * scale;
+      int16_t r1 = (vx + vy + wz*k) * scale;
+      int16_t r2 = (vx - vy + wz*k) * scale;
+      board.set_motor_signed(0, l1);
+      board.set_motor_signed(1, l2);
+      board.set_motor_signed(2, r1);
+      board.set_motor_signed(3, r2);
+      std::this_thread::sleep_for(std::chrono::seconds(2));
+      board.stop_all();
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    };
+
+    drive(1, 0, 0, "前进");
+    drive(0, 1, 0, "左移");      // 麦轮招牌：横着走
+    drive(0, 0, 1, "左转");      // 原地逆时针
+    drive(-1, 0, 0, "后退");
+```
+
+
+
+##### Step 3 — 加入ROS2节点
+
+先把刚才那两个 HAL 文件搬进 ROS 包(它们之前在 `~/hal_test`,现在进正式工程)。在 `raspbot_demo` 里建个 include 放头:
+
+```bash
+# HAL 头进 include,实现 + 节点进 src
+cp ~/hal_test/raspbot_board.hpp ~/raspbot_ws/src/raspbot_demo/include/raspbot_demo/
+cp ~/hal_test/raspbot_board.cpp ~/raspbot_ws/src/raspbot_demo/src/
+```
+
+然后写节点 `raspbot_demo/src/chassis_driver.cpp`:
+
+```cpp
+#include "rclcpp/rclcpp.hpp"
+#include "geometry_msgs/msg/twist.hpp"
+#include "raspbot_demo/raspbot_board.hpp"
+#include <algorithm>
+#include <cmath>
+
+class ChassisDriver : public rclcpp::Node
+{
+public:
+  ChassisDriver() : Node("chassis_driver"), board_("/dev/i2c-1", 0x2B)
+  {
+    // 订阅 /cmd_vel —— 控制指令必须 RELIABLE(呼应 M2!)
+    sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
+        "cmd_vel", rclcpp::QoS(10).reliable(),
+        std::bind(&ChassisDriver::on_cmd_vel, this, std::placeholders::_1));
+
+    // 安全看门狗:超过 0.5s 没收到 cmd_vel 就停车
+    watchdog_ = this->create_wall_timer(
+        std::chrono::milliseconds(100),
+        std::bind(&ChassisDriver::check_watchdog, this));
+    last_cmd_time_ = this->now();
+
+    RCLCPP_INFO(this->get_logger(), "chassis_driver 就绪,等待 /cmd_vel");
+  }
+
+private:
+  void on_cmd_vel(const geometry_msgs::msg::Twist & msg)
+  {
+    last_cmd_time_ = this->now();           // 喂狗
+
+    double vx = msg.linear.x;               // 前后
+    double vy = msg.linear.y;               // 左右(麦轮特有)
+    double wz = msg.angular.z;              // 旋转
+
+    // 麦轮逆运动学(你验证过的公式)
+    const double k = 1.0;                   // M5 标定真实值
+    const double scale = 200.0;             // m/s 等 → PWM 量级,先粗调
+    int l1 = std::lround((vx - vy - wz*k) * scale);
+    int l2 = std::lround((vx + vy - wz*k) * scale);
+    int r1 = std::lround((vx + vy + wz*k) * scale);
+    int r2 = std::lround((vx - vy + wz*k) * scale);
+
+    auto clamp255 = [](int v){ return std::clamp(v, -255, 255); };
+    board_.set_motor_signed(0, clamp255(l1));
+    board_.set_motor_signed(1, clamp255(l2));
+    board_.set_motor_signed(2, clamp255(r1));
+    board_.set_motor_signed(3, clamp255(r2));
+  }
+
+  void check_watchdog()
+  {
+    // 0.5s 没新指令 → 停车(防止遥控断了车一直冲)
+    if ((this->now() - last_cmd_time_).seconds() > 0.5) {
+      board_.stop_all();
+    }
+  }
+
+  RaspbotBoard board_;
+  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_;
+  rclcpp::TimerBase::SharedPtr watchdog_;
+  rclcpp::Time last_cmd_time_;
+};
+
+int main(int argc, char ** argv)
+{
+  rclcpp::init(argc, argv);
+  rclcpp::spin(std::make_shared<ChassisDriver>());
+  rclcpp::shutdown();   // 节点退出,board_ 析构 → stop_all() 自动停车
+  return 0;
+}
+```
+
+**几个设计点,都串起了你前面学的东西:**
+
+- **`cmd_vel` 用 `RELIABLE`**——这是 M2 的留存落地。控制指令不能丢,跟 `/wheel_speed`(BEST_EFFORT)**故意相反**。你现在写这行时是有意识地选语义,不再是无脑裸 `10`。
+- **看门狗**:0.5 秒没收到新 `/cmd_vel` 就停车。这是真实机器人的安全标配——遥控断连、上游节点崩了,车不能带着最后一条"前进"指令一直冲。这正好用上你 M3 学的 timer + 你 Linux 阶段的 watchdog 直觉。
+- **析构停车**:`board_` 是成员,节点销毁时它的析构函数自动 `stop_all()`。Ctrl-C 退出 → 车停。RAII 安全。
+- **`Twist` 的字段**:`linear.x/y` + `angular.z` 就是麦轮的 `vx/vy/ω`,标准 ROS2 速度消息。`/cmd_vel` 是全 ROS2 通用的"我要这么动"话题,M14 的 Nav2 也是往这个话题发。
+
+
+
+**CMake 配置**
+
+`package.xml` 加:
+
+```cmake
+<depend>geometry_msgs</depend>
+```
+
+`CMakeLists.txt`(注意 HAL 要链接 i2c,这是新东西):
+
+```cmake
+find_package(geometry_msgs REQUIRED)
+
+add_executable(chassis_driver src/chassis_driver.cpp src/raspbot_board.cpp)
+ament_target_dependencies(chassis_driver rclcpp geometry_msgs)
+target_include_directories(chassis_driver PRIVATE include)
+target_link_libraries(chassis_driver i2c)        # ← 链接 libi2c(C 库)
+
+install(TARGETS hello_node wheel_pub wheel_sub status_server status_client rotate_server chassis_driver
+  DESTINATION lib/${PROJECT_NAME})
+```
+
+
+
+**测试 — 还是先架空,键盘开车**
+
+```bash
+cd ~/raspbot_ws
+colcon build --packages-select raspbot_demo
+source install/setup.bash
+
+# 终端 1:底盘驱动节点(车架空!底盘电池开!)
+ros2 run raspbot_demo chassis_driver
+
+# 终端 2:键盘遥控(ROS2 自带工具,先装)
+sudo apt install ros-jazzy-teleop-twist-keyboard -y
+source install/setup.bash
+ros2 run teleop_twist_keyboard teleop_twist_keyboard
+```
+
+`teleop_twist_keyboard` 会往 `/cmd_vel` 发 Twist。它的按键:`i`=前进、`,`=后退、`j`/`l`=旋转、`u`/`o`等=组合。**注意它默认的 `k` 是停止**。麦轮的横移它默认按键可能不直接给 vy,但前进/后退/旋转一定能测。
+
+
 
 ---
 
