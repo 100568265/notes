@@ -10686,20 +10686,176 @@ ros2 run teleop_twist_keyboard teleop_twist_keyboard
 
 
 
-### M5 — 里程计 + TF + 帧约定（机器人学核心）
+### M5 — 里程计 + TF + 帧约定
 
-**目标**：发布 `nav_msgs/Odometry` 和 `odom→base_link` TF；建立标准帧/单位习惯。
+#### 为什么需要"坐标系"和 TF
 
-**新概念**
+你做协议时,数据就是数据,没有"在哪个参考系里"的概念。但机器人不行——**一个位置,必须说清楚"相对谁"才有意义**。举例:
 
-- tf2：坐标系树、TransformBroadcaster、static/dynamic。
-- 里程计：真车只能**指令式**（积分下发 Twist，质量差，明确标注）；真轮速积分放仿真。
-- **REP-103（单位/坐标方向）/ REP-105（map→odom→base_link 链）**——为 M14 Nav2 铺路。
+- 超声波说"前方 50cm 有障碍"——这是相对**传感器自己**(传感器坐标系)。
+- 但你要避障,得知道"障碍在**车体**的什么方位"(车体坐标系)。
+- 而你要导航到房间某点,得知道车"在**地图**里的什么位置"(地图坐标系)。
 
-**面试点**：诚实讲"本平台无编码器，指令式里程计仅作 dead-reckoning 兜底，定位主要靠 IMU 航向 + 雷达扫描匹配"——这是对传感器预算的系统级权衡，比有 odometry 喂给你更值钱。
+同一个障碍物,在三个坐标系里坐标完全不同。**TF 就是那个实时维护"这些坐标系之间怎么换算"的系统**——你问它"传感器坐标系里的这个点,在地图坐标系里是哪",它能算给你。
 
-**产出物**：RViz 看到车在动、`view_frames` 出的 TF 树符合 REP-105。
-**估时**：4 天
+ROS2 标准的坐标系层级(REP-105 规定,从上到下):
+
+```
+map(地图,全局固定)
+ └─ odom(里程计原点,车启动处)
+     └─ base_link(车体中心,跟车一起动)
+         ├─ laser(雷达)
+         ├─ imu(IMU)
+         └─ ultrasonic(超声波)
+```
+
+这是一棵**树**:每个坐标系有唯一父节点,变换沿着树边定义。**M5 只做中间那段:`odom → base_link`**(车相对里程计原点的位姿)。map 是 M14 SLAM 给的,传感器那些是 M6/M7 加的。
+
+画张图看清这棵树和各段谁负责——
+
+<img src="./assets/ros2_tf_tree_overview.svg" alt="ros2_tf_tree_overview" style="zoom:50%;" />
+
+看这棵树,M5 的活就是中间那一段 `odom → base_link`(图里标了"M5 发布")。其余的灰色 map 段是 M14 给的,蓝色传感器段是 M6/M7 加的——现在不用管,但你知道你正在搭的是整棵树的地基那一节。
+
+理解了框架,开始动手。M5 分三步,**先做标定**(顺便落地实跑),它给后面里程计和 TF 提供真实物理量。
+
+
+
+#### Step 1 — 标定
+
+量出真实尺寸 + 标定 scale
+
+现在 chassis_driver 里有两个占位值要换成真实值:`k`(转向系数)和 `scale`(指令值→PWM)。先量物理尺寸,再实跑标定 scale。
+
+**1a. 用尺子量这三个量**(单位用米),记下来:
+
+- **轮子半径 r**:量一个轮子的半径(从轴心到轮子外缘),单位米。比如 ¥3cm → 0.03m。
+- **轮距 L**(左右两轮中心的横向距离):量左轮中心到右轮中心,单位米。
+- **轴距 W**(前后两轮中心的纵向距离):量前轮中心到后轮中心,单位米。
+
+
+
+**1b. 标定 scale(实跑)**:
+
+`scale` 是"把 cmd_vel 里的速度值,放大成 0-255 的 PWM"的系数。因为你没编码器,只能用**实测反推**:
+
+1. 写个最简单的测试——让车**以固定 vx 前进固定时间**(比如 vx=0.2 持续 3 秒),看它**实际走了多远**。
+2. 理论上走的距离 = vx × 时间 = 0.2 × 3 = 0.6m。
+3. 实际量它走了多少(地上做记号,尺子量)。
+4. 如果实际走了 0.5m 但理论要 0.6m,说明你的 scale 偏小,按比例调:`新scale = 旧scale × (0.6 / 0.5)`。
+5. 反复几次,调到"理论距离 ≈ 实际距离"。
+
+这步的目的:让 `vx=0.2` 真的对应"0.2 m/s"的实际速度,里程计才准。
+
+
+
+物理测量后的尺寸(测量工具-普通尺子，可能不准)：
+
+```
+r = 0.03 m      (轮子半径)
+L = 0.135 m     (轮距,左右)
+W = 0.12 m      (轴距,前后)
+k = (L + W) / 2 = (0.135 + 0.12) / 2 = 0.1275 m   (麦轮转向系数)
+```
+
+关于 k:不同教材对麦轮 k 的定义略有差异(有的用 `(L+W)/2`,有的用别的组合),但**对你这个没编码器、要实跑标定的车,k 的精确值不关键**——因为旋转那部分最后也是靠实跑标定 ω 的 scale 校正的。先用 0.1275 占位,标定时一起校。
+
+
+
+#### Step 2 — 标定节点代码
+
+新建 `raspbot_demo/src/calib_drive.cpp`。它不订阅 cmd_vel,直接驱动 HAL,目的单一:**用一个固定 PWM 直行 N 秒,然后停**。
+
+```cpp
+#include "rclcpp/rclcpp.hpp"
+#include "raspbot_demo/raspbot_board.hpp"
+#include <thread>
+#include <chrono>
+
+int main(int argc, char ** argv)
+{
+  rclcpp::init(argc, argv);
+
+  // 可调参数：PWM 值 和 行驶时间（秒）
+  int pwm = 100;          // 固定给四个电机的 PWM（直行：四轮同向同速）
+  double duration = 3.0;  // 行驶时间
+
+  if (argc >= 2) pwm = std::atoi(argv[1]);
+  if (argc >= 3) duration = std::atof(argv[2]);
+
+  RaspbotBoard board("/dev/i2c-1", 0x2B);
+  printf(">>> 标定直行: PWM=%d, 时间=%.1fs\n", pwm, duration);
+  printf(">>> 3 秒后启动，请准备好计时和起点标记...\n");
+  std::this_thread::sleep_for(std::chrono::seconds(3));
+
+  // 直行：四轮同向同速（你验证过 dir=0 四轮 = 整车前进）
+  printf(">>> 启动！\n");
+  for (uint8_t id = 0; id < 4; ++id) board.set_motor(id, 0, pwm);
+
+  std::this_thread::sleep_for(
+      std::chrono::milliseconds((int)(duration * 1000)));
+
+  board.stop_all();
+  printf(">>> 停止。请测量实际行驶距离。\n");
+
+  rclcpp::shutdown();
+  return 0;
+}
+```
+
+CMake 加一个目标(它只用 HAL,不用 ROS2 通信,但放 ROS 包里方便):
+
+```cmake
+add_executable(calib_drive src/calib_drive.cpp src/raspbot_board.cpp)
+ament_target_dependencies(calib_drive rclcpp)
+target_include_directories(calib_drive PRIVATE include)
+target_link_libraries(calib_drive i2c)
+
+# 加进 install
+install(TARGETS hello_node wheel_pub wheel_sub status_server status_client rotate_server chassis_driver calib_drive
+  DESTINATION lib/${PROJECT_NAME})
+```
+
+**标定流程(车落地!)**
+
+```bash
+cd ~/raspbot_ws
+colcon build --packages-select raspbot_demo
+source install/setup.bash
+
+# 用法: ros2 run raspbot_demo calib_drive <PWM> <秒数>
+ros2 run raspbot_demo calib_drive 100 3
+```
+
+**操作步骤**:
+
+1. 把车放地上,**车头前方留出 1.5 米空间**,地面平整。
+2. 在车的某个固定点(比如车头正中)对应的地面**做个起点标记**(贴胶带/放个小物)。
+3. 跑 `ros2 run raspbot_demo calib_drive 100 3`——它会**倒数 3 秒**给你准备,然后直行 3 秒停下。
+4. 在车停下后,同一个固定点对应地面**做终点标记**。
+5. **用尺子量起点到终点的直线距离**(米)。
+
+记三个数给我:
+
+- **PWM 值**(这次用 100)
+- **行驶时间**(3 秒)
+- **实测距离**(米,你量的)
+
+
+
+**安全 + 注意**
+
+- **第一次用 PWM=100,别太大**——车在地上会真的窜出去,100 是中等速度,可控。如果你觉得太快,降到 80 或 60 重跑(参数随便调)。
+- **跑直线**:理论上四轮同速车应该走直线,但实际可能因为四个电机性能略有差异**轻微跑偏**。轻微跑偏正常,你量"起点到终点的直线距离"即可(不用管它有没有走得绝对直)。如果**严重跑偏甚至画圈**,那是某个电机有问题或 PWM 太低带不动,跟我说。
+- **量距离量"车移动的距离",不是轮子转的距离**——所以用车上固定一点对地面投影来量最准。
+
+
+
+跑完把 **PWM / 时间 / 实测距离** 三个数给我。我用它算出你的车在 PWM=100 时的真实速度(m/s),然后反推 scale,让 `vx` 这个数真的对应 m/s。**这个 scale 定了,里程计才有意义**——否则里程计积分出来的位移全是错的。
+
+标定准了,我们就进 M5 的核心:**里程计正运动学**(轮速→车的位移积分)+ **发布 /odom 和 TF**。那才是这关真正的新东西。
+
+
 
 ---
 
