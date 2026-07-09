@@ -7,6 +7,38 @@
   <link rel="stylesheet" href="//cdn.jsdelivr.net/npm/docsify@4/lib/themes/vue.css">
   <!-- 侧边栏折叠插件的样式 -->
   <link rel="stylesheet" href="//cdn.jsdelivr.net/npm/docsify-sidebar-collapse/dist/sidebar.min.css">
+  <!-- GitHub 浅色代码高亮配色 -->
+  <style>
+    .markdown-section pre[data-lang] {
+      background: #f6f8fa;
+      border: 1px solid #eaecef;
+      border-radius: 6px;
+    }
+    .markdown-section pre[data-lang] code { color: #24292e; background: transparent; }
+    .markdown-section pre[data-lang] .token.comment,
+    .markdown-section pre[data-lang] .token.prolog,
+    .markdown-section pre[data-lang] .token.cdata { color: #6a737d; font-style: italic; }
+    .markdown-section pre[data-lang] .token.punctuation { color: #24292e; }
+    .markdown-section pre[data-lang] .token.keyword,
+    .markdown-section pre[data-lang] .token.operator,
+    .markdown-section pre[data-lang] .token.macro,
+    .markdown-section pre[data-lang] .token.directive,
+    .markdown-section pre[data-lang] .token.directive-hash,
+    .markdown-section pre[data-lang] .token.important { color: #d73a49; }
+    .markdown-section pre[data-lang] .token.string,
+    .markdown-section pre[data-lang] .token.char,
+    .markdown-section pre[data-lang] .token.attr-value { color: #032f62; }
+    .markdown-section pre[data-lang] .token.function { color: #6f42c1; }
+    .markdown-section pre[data-lang] .token.class-name,
+    .markdown-section pre[data-lang] .token.builtin { color: #e36209; }
+    .markdown-section pre[data-lang] .token.number,
+    .markdown-section pre[data-lang] .token.boolean,
+    .markdown-section pre[data-lang] .token.constant,
+    .markdown-section pre[data-lang] .token.symbol { color: #005cc5; }
+    .markdown-section pre[data-lang] .token.tag,
+    .markdown-section pre[data-lang] .token.attr-name,
+    .markdown-section pre[data-lang] .token.property { color: #22863a; }
+  </style>
 </head>
 <body>
   <div id="app">加载中...</div>
@@ -29,5 +61,11 @@
   <script src="//cdn.jsdelivr.net/npm/docsify@4"></script>
   <!-- 折叠插件本体 -->
   <script src="//cdn.jsdelivr.net/npm/docsify-sidebar-collapse/dist/docsify-sidebar-collapse.min.js"></script>
+  <!-- Prism 语言组件（c 必须在 cpp 之前）-->
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-c.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-cpp.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-python.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-bash.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-cmake.min.js"></script>
 </body>
 </html>
