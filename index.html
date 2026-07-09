@@ -1,10 +1,12 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <title>我的机器人系统工程师笔记</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">
   <link rel="stylesheet" href="//cdn.jsdelivr.net/npm/docsify@4/lib/themes/vue.css">
+  <!-- 侧边栏折叠插件的样式 -->
+  <link rel="stylesheet" href="//cdn.jsdelivr.net/npm/docsify-sidebar-collapse/dist/sidebar.min.css">
 </head>
 <body>
   <div id="app">加载中...</div>
@@ -12,13 +14,28 @@
     window.$docsify = {
       name: '学习笔记',
       repo: '100568265/notes',
-      // 🔑 核心设置：让主页直接加载你的 notes.md，而不是默认的 README.md
-      homepage: 'notes.md', 
-      // 自动根据你 notes.md 里面的 #、##、### 标题生成侧边栏/目录
-      maxLevel: 4,
-      subMaxLevel: 3
+      // 🔑 主页仍然直接加载 notes.md
+      homepage: 'notes.md',
+      // 🔑 启用 _sidebar.md 作为侧边栏（多文件导航靠它）
+      loadSidebar: true,
+      // 侧边栏里，当前页面下自动展开的标题层级（# 到 ###）
+      subMaxLevel: 3,
+      // 折叠插件：初始只展开到第 1 层，其余折叠
+      sidebarDisplayLevel: 1,
+      // 右上角回到顶部
+      auto2top: true,
+      // 顶部搜索框
+      search: {
+        placeholder: '搜索笔记...',
+        noData: '找不到结果',
+        depth: 4
+      }
     }
   </script>
   <script src="//cdn.jsdelivr.net/npm/docsify@4"></script>
+  <!-- 折叠插件本体 -->
+  <script src="//cdn.jsdelivr.net/npm/docsify-sidebar-collapse/dist/docsify-sidebar-collapse.min.js"></script>
+  <!-- 全文搜索插件 -->
+  <script src="//cdn.jsdelivr.net/npm/docsify/lib/plugins/search.min.js"></script>
 </body>
 </html>
