@@ -1725,12 +1725,6 @@ ros2 run status_display sys_status_display
 
 
 
-# 机器人系统岗技术栈
-
-![](./assets/robotics_system_engineer_tech_stack.svg)
-
-
-
 
 
 
