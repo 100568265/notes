@@ -1,6 +1,6 @@
-# 🤖 机器人系统工程师 · 学习笔记
+# C/C++ · 技术笔记
 
-> 从语言基础到整机项目，系统记录我通往「机器人系统工程师」的完整技术栈。
+> 从语言基础到真实项目，持续收录 C/C++ 在系统、网络、音视频、机器人、图形、嵌入式和 AI 端侧部署等方向的知识与实践。
 
 ---
 
@@ -8,20 +8,25 @@
 
 | 板块 | 内容 |
 | --- | --- |
-| 🐍 **[Python](python.md)** | 数据容器、函数、面向对象、多线程与回调 —— 语法速记与快速上手 |
-| ⚙️ **[C++](cpp.md)** | 类型推导、智能指针、Lambda、`std::function`、多线程 —— 现代 C++ 笔记 |
-| 🦾 **[机器人技术栈](robot-tech-stack/0.outline.md)** | C++ 核心强化 · Linux 系统编程 · RaspBot 小车（ROS2）整机项目 |
+| 🗺️ **[总路线图](roadmap.md)** | 公共基础、系统底座与七个 C/C++ 专项方向的全景索引 |
+| 🧱 **基础能力** | [C](c.md) · [C++](cpp.md) · [数据结构](ds.md) · [Linux 系统编程](linux.md) |
+| 🎬 **[音视频与实时通信](roadmap.md#音视频与实时通信专项)** | C++ · Linux 网络 · FFmpeg · Live555 · WebRTC 的 32 周路线 |
+| 🧠 **[AI 推理与端侧部署](roadmap.md#ai-推理与端侧部署专项)** | ONNX · ONNX Runtime · TensorRT · 量化优化 · Jetson 部署 |
+| 🦾 **[机器人技术栈](robot-tech-stack/0.outline.md)** | ROS2 · 硬件接口 · 传感器 · RaspBot 整机项目 |
+| 🐍 **[Python](python.md)** | 数据容器、函数、面向对象、多线程与回调的辅助笔记 |
 
 ---
 
 ## 🗺 技术栈路线图
 
-![机器人系统工程师技术栈](assets/robotics_system_engineer_tech_stack.svg)
+![C/C++ 技术学习全景路线图](assets/cpp_technology_roadmap.svg)
+
+[查看完整路线、专项进度与使用说明 →](roadmap.md)
 
 ---
 
-## 🎯 关于
+## 🧭 收录原则
 
-- **目标岗位**：机器人系统工程师（Pudu / ORION STAR / Yunjing / AgileX，长期 Unitree）
-- **开发环境**：Ubuntu 24.04 · ROS2 Jazzy
-- **硬件平台**：Raspberry Pi 5 + Yahboom Raspbot V2（麦轮底盘 · I2C 驱动板 · 超声波/循迹 · 2DOF 云台 · OLED/RGB/蜂鸣器）
+- **基础共用**：语言、数据结构、操作系统、网络和工程工具只整理一份，专项页面通过链接复用。
+- **项目驱动**：每个方向都围绕可运行项目组织，而不是堆叠孤立知识点。
+- **逐步扩展**：当前以机器人和音视频为起点，后续再补嵌入式、服务端、图形和高性能计算。

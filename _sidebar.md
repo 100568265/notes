@@ -1,10 +1,21 @@
 - [🏠 首页](notes.md)
 
-- [🐍 Python](python.md)
+- [🗺️ C/C++ 总路线图](roadmap.md)
 
-- [⚙️ C++](cpp.md)
+- **🧱 公共基础**
+  - [C 语言](c.md)
+  - [C++](cpp.md)
+  - [数据结构](ds.md)
+  - [Linux 系统编程](linux.md)
+  - [Python 辅助笔记](python.md)
 
-- **🦾 机器人技术栈**
+- **🎬 音视频与实时通信**
+  - [32 周专项路线](roadmap.md#音视频与实时通信专项)
+
+- **🧠 AI 推理与端侧部署**
+  - [专项路线](roadmap.md#ai-推理与端侧部署专项)
+
+- **🦾 机器人 / 自动驾驶**
   - [大纲](robot-tech-stack/0.outline.md)
   - [第一阶段 · C++ 核心](robot-tech-stack/1.cpp.md)
   - [第二阶段 · Linux 系统编程](robot-tech-stack/2.linux.md)

@@ -1,0 +1,157 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1040" viewBox="0 0 1200 1040" role="img" aria-labelledby="title desc">
+  <title id="title">C++ AI 推理与端侧部署路线图</title>
+  <desc id="desc">从 C++、Linux 和深度学习基础出发，经过 ONNX 模型转换、ONNX Runtime 与 TensorRT 推理引擎、量化和性能优化，最终完成 Jetson 等边缘设备上的端到端部署项目。</desc>
+  <defs>
+    <linearGradient id="hero" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#052e2b"/><stop offset="1" stop-color="#047857"/>
+    </linearGradient>
+    <linearGradient id="flow" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0f766e"/><stop offset="1" stop-color="#16a34a"/>
+    </linearGradient>
+    <filter id="shadow" x="-12%" y="-12%" width="124%" height="135%">
+      <feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#052e2b" flood-opacity=".1"/>
+    </filter>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M1 1l7 4-7 4" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      text{font-family:"Microsoft YaHei","PingFang SC","Noto Sans CJK SC",Arial,sans-serif}
+      .eyebrow{font-size:13px;font-weight:700;letter-spacing:2.5px;fill:#a7f3d0}
+      .title{font-size:31px;font-weight:800;fill:#fff}
+      .subtitle{font-size:14px;fill:#d1fae5}
+      .phase-no{font-size:12px;font-weight:800;fill:#fff;letter-spacing:1px}
+      .phase-title{font-size:18px;font-weight:800;fill:#fff}
+      .phase-sub{font-size:12px;font-weight:600;fill:#e2e8f0}
+      .block-title{font-size:14px;font-weight:800;fill:#0f172a}
+      .item{font-size:12.5px;fill:#475569}
+      .project-title{font-size:15px;font-weight:800;fill:#0f172a}
+      .project-sub{font-size:12px;fill:#64748b}
+      .flow-title{font-size:14px;font-weight:800;fill:#fff}
+      .flow-sub{font-size:11px;fill:#d1fae5}
+    </style>
+  </defs>
+
+  <rect width="1200" height="1040" rx="24" fill="#f8fafc"/>
+  <rect x="24" y="24" width="1152" height="132" rx="20" fill="url(#hero)"/>
+  <text x="58" y="62" class="eyebrow">C++ · MODEL INFERENCE · EDGE DEPLOYMENT</text>
+  <text x="58" y="102" class="title">AI 推理与端侧部署路线图</text>
+  <text x="58" y="131" class="subtitle">目标：把训练好的模型稳定、高效地部署到真实设备，而不只是“成功跑起来”</text>
+  <g transform="translate(970 51)">
+    <rect width="160" height="78" rx="14" fill="#fff" opacity=".1" stroke="#fff" stroke-opacity=".18"/>
+    <text x="80" y="31" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">核心闭环</text>
+    <text x="80" y="55" text-anchor="middle" fill="#a7f3d0" font-size="12">正确性 · 性能 · 工程化</text>
+  </g>
+
+  <!-- Phase 1 -->
+  <g transform="translate(36 184)" filter="url(#shadow)">
+    <rect width="352" height="264" rx="16" fill="#fff" stroke="#bae6fd"/>
+    <path d="M16 0h320a16 16 0 0116 16v70H0V16A16 16 0 0116 0z" fill="#0284c7"/>
+    <text x="20" y="26" class="phase-no">PHASE 01</text>
+    <text x="20" y="52" class="phase-title">工程与系统基础</text>
+    <text x="20" y="73" class="phase-sub">先具备写部署程序和排查问题的能力</text>
+    <g transform="translate(18 106)">
+      <text x="0" y="0" class="block-title">现代 C++</text>
+      <text x="0" y="23" class="item">智能指针 · 移动语义 · Lambda · 并发基础</text>
+      <text x="0" y="55" class="block-title">Linux 与网络</text>
+      <text x="0" y="78" class="item">线程同步 · 线程池 · IPC · Socket · HTTP</text>
+      <text x="0" y="110" class="block-title">构建与调试</text>
+      <text x="0" y="133" class="item">CMake · 动静态库 · GDB · 交叉编译</text>
+    </g>
+  </g>
+
+  <!-- Phase 2 -->
+  <g transform="translate(424 184)" filter="url(#shadow)">
+    <rect width="352" height="264" rx="16" fill="#fff" stroke="#ddd6fe"/>
+    <path d="M16 0h320a16 16 0 0116 16v70H0V16A16 16 0 0116 0z" fill="#7c3aed"/>
+    <text x="20" y="26" class="phase-no">PHASE 02</text>
+    <text x="20" y="52" class="phase-title">模型理解与中间表示</text>
+    <text x="20" y="73" class="phase-sub">理解输入输出、算子和模型转换链路</text>
+    <g transform="translate(18 106)">
+      <text x="0" y="0" class="block-title">Python / PyTorch</text>
+      <text x="0" y="23" class="item">NumPy · 模型构建 · 训练 · 保存与加载</text>
+      <text x="0" y="55" class="block-title">网络结构</text>
+      <text x="0" y="78" class="item">CNN · ResNet/MobileNet · Transformer</text>
+      <text x="0" y="110" class="block-title">ONNX 工具链</text>
+      <text x="0" y="133" class="item">模型导出 · 图结构 · 算子 · Netron · 验证</text>
+    </g>
+  </g>
+
+  <!-- Phase 3 -->
+  <g transform="translate(812 184)" filter="url(#shadow)">
+    <rect width="352" height="264" rx="16" fill="#fff" stroke="#fed7aa"/>
+    <path d="M16 0h320a16 16 0 0116 16v70H0V16A16 16 0 0116 0z" fill="#ea580c"/>
+    <text x="20" y="26" class="phase-no">PHASE 03</text>
+    <text x="20" y="52" class="phase-title">推理引擎</text>
+    <text x="20" y="73" class="phase-sub">先通用后专用，建立引擎抽象能力</text>
+    <g transform="translate(18 106)">
+      <text x="0" y="0" class="block-title">ONNX Runtime</text>
+      <text x="0" y="23" class="item">Session · Execution Provider · 图优化</text>
+      <text x="0" y="55" class="block-title">TensorRT</text>
+      <text x="0" y="78" class="item">Builder · Engine · Context · 动态 Shape</text>
+      <text x="0" y="110" class="block-title">诊断工具</text>
+      <text x="0" y="133" class="item">trtexec · Polygraphy · Nsight · Profiling</text>
+    </g>
+  </g>
+
+  <path d="M600 464v32" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Phase 4 -->
+  <g transform="translate(36 516)" filter="url(#shadow)">
+    <rect width="548" height="264" rx="16" fill="#fff" stroke="#bbf7d0"/>
+    <path d="M16 0h516a16 16 0 0116 16v70H0V16A16 16 0 0116 0z" fill="#16a34a"/>
+    <text x="20" y="26" class="phase-no">PHASE 04</text>
+    <text x="20" y="52" class="phase-title">端侧优化与设备部署</text>
+    <text x="20" y="73" class="phase-sub">同时评估精度、延迟、吞吐、内存与功耗</text>
+    <g transform="translate(18 108)">
+      <text x="0" y="0" class="block-title">精度优化</text>
+      <text x="0" y="24" class="item">FP16 / INT8 · PTQ / QAT · 校准 · 误差评估</text>
+      <text x="0" y="58" class="block-title">计算与内存</text>
+      <text x="0" y="82" class="item">算子融合 · 内存复用 · 显存池 · 多流异步流水线</text>
+      <text x="0" y="116" class="block-title">目标设备</text>
+      <text x="0" y="140" class="item">Jetson · ARM Linux · CUDA/TensorRT · 交叉编译</text>
+    </g>
+  </g>
+
+  <!-- Project ladder -->
+  <g transform="translate(616 516)" filter="url(#shadow)">
+    <rect width="548" height="264" rx="16" fill="#fff" stroke="#fde68a"/>
+    <path d="M16 0h516a16 16 0 0116 16v70H0V16A16 16 0 0116 0z" fill="#ca8a04"/>
+    <text x="20" y="26" class="phase-no">PHASE 05</text>
+    <text x="20" y="52" class="phase-title">项目阶梯</text>
+    <text x="20" y="73" class="phase-sub">每一级都交付代码、测试数据、性能报告和说明文档</text>
+    <g transform="translate(18 110)">
+      <circle cx="10" cy="4" r="10" fill="#fef3c7"/><text x="10" y="8" text-anchor="middle" fill="#92400e" font-size="11" font-weight="800">1</text>
+      <text x="30" y="9" class="project-title">图像分类部署</text><text x="177" y="9" class="project-sub">PyTorch → ONNX → TensorRT</text>
+      <circle cx="10" cy="44" r="10" fill="#fef3c7"/><text x="10" y="48" text-anchor="middle" fill="#92400e" font-size="11" font-weight="800">2</text>
+      <text x="30" y="49" class="project-title">YOLO 实时检测</text><text x="177" y="49" class="project-sub">预处理 · NMS · INT8 · 摄像头</text>
+      <circle cx="10" cy="84" r="10" fill="#fef3c7"/><text x="10" y="88" text-anchor="middle" fill="#92400e" font-size="11" font-weight="800">3</text>
+      <text x="30" y="89" class="project-title">多模型流水线</text><text x="177" y="89" class="project-sub">多线程 · 队列 · 异步推理</text>
+      <circle cx="10" cy="124" r="10" fill="#fef3c7"/><text x="10" y="128" text-anchor="middle" fill="#92400e" font-size="11" font-weight="800">4</text>
+      <text x="30" y="129" class="project-title">端到端设备应用</text><text x="177" y="129" class="project-sub">监控 · 日志 · 更新 · 异常恢复</text>
+    </g>
+  </g>
+
+  <!-- Delivery flow -->
+  <g transform="translate(36 812)">
+    <rect width="1128" height="112" rx="16" fill="#0f172a"/>
+    <text x="24" y="30" fill="#94a3b8" font-size="12" font-weight="700" letter-spacing="1">DEPLOYMENT PIPELINE</text>
+    <g transform="translate(24 48)">
+      <rect width="154" height="46" rx="10" fill="#134e4a"/><text x="77" y="20" text-anchor="middle" class="flow-title">模型导出</text><text x="77" y="37" text-anchor="middle" class="flow-sub">PyTorch → ONNX</text>
+      <path d="M166 23h30" stroke="#64748b" marker-end="url(#arrow)"/>
+      <rect x="208" width="154" height="46" rx="10" fill="#115e59"/><text x="285" y="20" text-anchor="middle" class="flow-title">结果校验</text><text x="285" y="37" text-anchor="middle" class="flow-sub">精度 / 算子 / Shape</text>
+      <path d="M374 23h30" stroke="#64748b" marker-end="url(#arrow)"/>
+      <rect x="416" width="154" height="46" rx="10" fill="#0f766e"/><text x="493" y="20" text-anchor="middle" class="flow-title">引擎构建</text><text x="493" y="37" text-anchor="middle" class="flow-sub">ORT / TensorRT</text>
+      <path d="M582 23h30" stroke="#64748b" marker-end="url(#arrow)"/>
+      <rect x="624" width="154" height="46" rx="10" fill="#15803d"/><text x="701" y="20" text-anchor="middle" class="flow-title">性能优化</text><text x="701" y="37" text-anchor="middle" class="flow-sub">量化 / 并行 / 内存</text>
+      <path d="M790 23h30" stroke="#64748b" marker-end="url(#arrow)"/>
+      <rect x="832" width="248" height="46" rx="10" fill="url(#flow)"/><text x="956" y="20" text-anchor="middle" class="flow-title">设备集成与持续测量</text><text x="956" y="37" text-anchor="middle" class="flow-sub">延迟 · 吞吐 · 精度 · 内存 · 功耗</text>
+    </g>
+  </g>
+
+  <!-- Optional extensions -->
+  <g transform="translate(36 948)">
+    <rect width="1128" height="76" rx="14" fill="#ecfdf5" stroke="#a7f3d0"/>
+    <text x="22" y="29" fill="#065f46" font-size="13" font-weight="800">进阶扩展（完成端侧主线后按需选择）</text>
+    <text x="22" y="54" fill="#047857" font-size="12.5">云端服务：Docker / Triton Inference Server　　大模型推理：vLLM / PagedAttention　　深入原理：TensorRT 示例 / ONNX Runtime 源码 / 自定义算子</text>
+  </g>
+</svg>

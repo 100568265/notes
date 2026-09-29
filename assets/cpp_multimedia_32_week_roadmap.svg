@@ -1,0 +1,167 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="920" viewBox="0 0 1200 920" role="img" aria-labelledby="title desc">
+  <title id="title">C++ 音视频与实时通信 32 周路线</title>
+  <desc id="desc">从 C++ 语言、Linux 和计算机基础开始，学习音视频基础、FFmpeg、Live555 与 WebRTC，并以阶段项目完成能力验证。</desc>
+  <defs>
+    <linearGradient id="hero" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#312e81"/><stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <filter id="shadow" x="-12%" y="-12%" width="124%" height="135%">
+      <feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#1e1b4b" flood-opacity=".1"/>
+    </filter>
+    <style>
+      text{font-family:"Microsoft YaHei","PingFang SC","Noto Sans CJK SC",Arial,sans-serif}
+      .eyebrow{font-size:13px;font-weight:700;letter-spacing:2.5px;fill:#ddd6fe}
+      .title{font-size:31px;font-weight:800;fill:#fff}
+      .subtitle{font-size:14px;fill:#ede9fe}
+      .phase-no{font-size:12px;font-weight:800;fill:#fff;letter-spacing:1px}
+      .phase-title{font-size:19px;font-weight:800;fill:#fff}
+      .range{font-size:12px;font-weight:700;fill:#e2e8f0}
+      .week{font-size:12px;font-weight:800;fill:#64748b}
+      .topic{font-size:13px;fill:#334155}
+      .project-title{font-size:14px;font-weight:800;fill:#0f172a}
+      .project-text{font-size:12px;fill:#475569}
+    </style>
+  </defs>
+  <rect width="1200" height="920" rx="24" fill="#f8fafc"/>
+  <rect x="24" y="24" width="1152" height="128" rx="20" fill="url(#hero)"/>
+  <text x="58" y="62" class="eyebrow">SPECIALIZATION ROADMAP · 32 WEEKS</text>
+  <text x="58" y="101" class="title">C++ 音视频与实时通信路线</text>
+  <text x="58" y="129" class="subtitle">建议节奏：每周 8–12 小时 · 学习 60% + 编码 30% + 复盘 10%</text>
+  <g transform="translate(962 52)">
+    <circle cx="43" cy="36" r="36" fill="#fff" opacity=".14"/>
+    <text x="43" y="33" text-anchor="middle" fill="#fff" font-size="24" font-weight="800">32</text>
+    <text x="43" y="51" text-anchor="middle" fill="#ede9fe" font-size="11">WEEKS</text>
+  </g>
+
+  <path d="M297 196h20M589 196h20M881 196h20" stroke="#cbd5e1" stroke-width="2" stroke-dasharray="4 5"/>
+
+  <g transform="translate(36 180)" filter="url(#shadow)">
+    <rect width="270" height="560" rx="16" fill="#fff" stroke="#ddd6fe"/>
+    <path d="M16 0h238a16 16 0 0116 16v88H0V16A16 16 0 0116 0z" fill="#7c3aed"/>
+    <text x="20" y="28" class="phase-no">PHASE 01</text>
+    <text x="20" y="57" class="phase-title">C++ 核心能力</text>
+    <text x="20" y="82" class="range">第 1–6 周 · 语言与工程起步</text>
+    <g transform="translate(18 124)">
+      <text x="0" y="10" class="week">W01</text><text x="46" y="10" class="topic">C++ 基础语法与编译模型</text>
+      <line x1="0" y1="28" x2="234" y2="28" stroke="#f1f5f9"/>
+      <text x="0" y="51" class="week">W02</text><text x="46" y="51" class="topic">函数、类与对象</text>
+      <line x1="0" y1="69" x2="234" y2="69" stroke="#f1f5f9"/>
+      <text x="0" y="92" class="week">W03</text><text x="46" y="92" class="topic">封装、继承与多态</text>
+      <line x1="0" y1="110" x2="234" y2="110" stroke="#f1f5f9"/>
+      <text x="0" y="133" class="week">W04</text><text x="46" y="133" class="topic">模板与泛型编程</text>
+      <line x1="0" y1="151" x2="234" y2="151" stroke="#f1f5f9"/>
+      <text x="0" y="174" class="week">W05</text><text x="46" y="174" class="topic">STL 与常用容器</text>
+      <line x1="0" y1="192" x2="234" y2="192" stroke="#f1f5f9"/>
+      <text x="0" y="215" class="week">W06</text><text x="46" y="215" class="topic">现代 C++ 与 RAII</text>
+    </g>
+    <g transform="translate(18 390)">
+      <rect width="234" height="142" rx="12" fill="#f5f3ff" stroke="#ddd6fe"/>
+      <text x="16" y="29" class="project-title">阶段产出</text>
+      <text x="16" y="55" class="project-text">• 命令行媒体信息工具</text>
+      <text x="16" y="77" class="project-text">• 使用 CMake 组织多文件工程</text>
+      <text x="16" y="99" class="project-text">• 单元测试 + Sanitizer 检查</text>
+      <text x="16" y="121" class="project-text">• 总结对象生命周期与内存模型</text>
+    </g>
+  </g>
+
+  <g transform="translate(328 180)" filter="url(#shadow)">
+    <rect width="270" height="560" rx="16" fill="#fff" stroke="#bae6fd"/>
+    <path d="M16 0h238a16 16 0 0116 16v88H0V16A16 16 0 0116 0z" fill="#0284c7"/>
+    <text x="20" y="28" class="phase-no">PHASE 02</text>
+    <text x="20" y="57" class="phase-title">系统与计算机基础</text>
+    <text x="20" y="82" class="range">第 7–14 周 · Linux 与网络</text>
+    <g transform="translate(18 124)">
+      <text x="0" y="10" class="week">W07</text><text x="46" y="10" class="topic">线程同步、进程与 IPC</text>
+      <line x1="0" y1="28" x2="234" y2="28" stroke="#f1f5f9"/>
+      <text x="0" y="51" class="week">W08</text><text x="46" y="51" class="topic">Linux 系统编程速成</text>
+      <line x1="0" y1="69" x2="234" y2="69" stroke="#f1f5f9"/>
+      <text x="0" y="92" class="week">W09</text><text x="46" y="92" class="topic">网络协议与 Socket 编程</text>
+      <line x1="0" y1="110" x2="234" y2="110" stroke="#f1f5f9"/>
+      <text x="0" y="133" class="week">W10</text><text x="46" y="133" class="topic">网络 I/O 与通信模型</text>
+      <line x1="0" y1="151" x2="234" y2="151" stroke="#f1f5f9"/>
+      <text x="0" y="174" class="week">W11–12</text><text x="62" y="174" class="topic">设计模式、数据结构</text>
+      <line x1="0" y1="192" x2="234" y2="192" stroke="#f1f5f9"/>
+      <text x="0" y="215" class="week">W13–14</text><text x="62" y="215" class="topic">基础与进阶算法</text>
+    </g>
+    <g transform="translate(18 390)">
+      <rect width="234" height="142" rx="12" fill="#f0f9ff" stroke="#bae6fd"/>
+      <text x="16" y="29" class="project-title">阶段产出</text>
+      <text x="16" y="55" class="project-text">• 多线程 TCP 聊天/传输程序</text>
+      <text x="16" y="77" class="project-text">• epoll / Reactor 小型服务器</text>
+      <text x="16" y="99" class="project-text">• 线程池与消息队列</text>
+      <text x="16" y="121" class="project-text">• 性能测试与问题定位报告</text>
+    </g>
+  </g>
+
+  <g transform="translate(620 180)" filter="url(#shadow)">
+    <rect width="270" height="560" rx="16" fill="#fff" stroke="#fed7aa"/>
+    <path d="M16 0h238a16 16 0 0116 16v88H0V16A16 16 0 0116 0z" fill="#ea580c"/>
+    <text x="20" y="28" class="phase-no">PHASE 03</text>
+    <text x="20" y="57" class="phase-title">音视频与 FFmpeg</text>
+    <text x="20" y="82" class="range">第 15–25 周 · 采集到播放</text>
+    <g transform="translate(18 124)">
+      <text x="0" y="10" class="week">W15</text><text x="46" y="10" class="topic">音视频基础：帧、采样、时钟</text>
+      <line x1="0" y1="28" x2="234" y2="28" stroke="#f1f5f9"/>
+      <text x="0" y="51" class="week">W16</text><text x="46" y="51" class="topic">封装格式与流媒体协议</text>
+      <line x1="0" y1="69" x2="234" y2="69" stroke="#f1f5f9"/>
+      <text x="0" y="92" class="week">W17–18</text><text x="62" y="92" class="topic">采集、编解码、客户端框架</text>
+      <line x1="0" y1="110" x2="234" y2="110" stroke="#f1f5f9"/>
+      <text x="0" y="133" class="week">W19–22</text><text x="62" y="133" class="topic">FFmpeg 基础、API 与流媒体</text>
+      <line x1="0" y1="151" x2="234" y2="151" stroke="#f1f5f9"/>
+      <text x="0" y="174" class="week">W23–24</text><text x="62" y="174" class="topic">ffplay 源码精读</text>
+      <line x1="0" y1="192" x2="234" y2="192" stroke="#f1f5f9"/>
+      <text x="0" y="215" class="week">W25</text><text x="46" y="215" class="topic">FFmpeg 模块与源码阅读</text>
+    </g>
+    <g transform="translate(18 390)">
+      <rect width="234" height="142" rx="12" fill="#fff7ed" stroke="#fed7aa"/>
+      <text x="16" y="29" class="project-title">阶段产出</text>
+      <text x="16" y="55" class="project-text">• 音视频转码与滤镜工具</text>
+      <text x="16" y="77" class="project-text">• 音视频采集与推流程序</text>
+      <text x="16" y="99" class="project-text">• 基础播放器：解复用/解码/同步</text>
+      <text x="16" y="121" class="project-text">• 一篇 ffplay 架构分析笔记</text>
+    </g>
+  </g>
+
+  <g transform="translate(912 180)" filter="url(#shadow)">
+    <rect width="252" height="560" rx="16" fill="#fff" stroke="#bbf7d0"/>
+    <path d="M16 0h220a16 16 0 0116 16v88H0V16A16 16 0 0116 0z" fill="#16a34a"/>
+    <text x="20" y="28" class="phase-no">PHASE 04</text>
+    <text x="20" y="57" class="phase-title">流媒体与 WebRTC</text>
+    <text x="20" y="82" class="range">第 26–32 周 · 实时通信</text>
+    <g transform="translate(18 124)">
+      <text x="0" y="10" class="week">W26</text><text x="46" y="10" class="topic">Live555 基础</text>
+      <line x1="0" y1="28" x2="216" y2="28" stroke="#f1f5f9"/>
+      <text x="0" y="51" class="week">W27</text><text x="46" y="51" class="topic">RTSP 服务、传输与编解码</text>
+      <line x1="0" y1="69" x2="216" y2="69" stroke="#f1f5f9"/>
+      <text x="0" y="92" class="week">W28</text><text x="46" y="92" class="topic">跨平台与技术融合</text>
+      <line x1="0" y1="110" x2="216" y2="110" stroke="#f1f5f9"/>
+      <text x="0" y="133" class="week">W29</text><text x="46" y="133" class="topic">WebRTC 基础</text>
+      <line x1="0" y1="151" x2="216" y2="151" stroke="#f1f5f9"/>
+      <text x="0" y="174" class="week">W30–31</text><text x="62" y="174" class="topic">架构、API、传输与安全</text>
+      <line x1="0" y1="192" x2="216" y2="192" stroke="#f1f5f9"/>
+      <text x="0" y="215" class="week">W32</text><text x="46" y="215" class="topic">跨平台收尾与复盘</text>
+    </g>
+    <g transform="translate(18 390)">
+      <rect width="216" height="142" rx="12" fill="#f0fdf4" stroke="#bbf7d0"/>
+      <text x="16" y="29" class="project-title">阶段产出</text>
+      <text x="16" y="55" class="project-text">• RTSP 推流与播放 Demo</text>
+      <text x="16" y="77" class="project-text">• 浏览器实时音视频 Demo</text>
+      <text x="16" y="99" class="project-text">• 弱网测试与延迟分析</text>
+      <text x="16" y="121" class="project-text">• 跨平台构建及发布说明</text>
+    </g>
+  </g>
+
+  <g transform="translate(36 770)">
+    <rect width="1128" height="114" rx="16" fill="#0f172a"/>
+    <text x="24" y="34" fill="#94a3b8" font-size="12" font-weight="700" letter-spacing="1">MILESTONES</text>
+    <circle cx="44" cy="73" r="13" fill="#7c3aed"/><text x="68" y="78" fill="#fff" font-size="13" font-weight="700">能写工程</text>
+    <line x1="165" y1="73" x2="236" y2="73" stroke="#475569" stroke-width="2"/>
+    <circle cx="260" cy="73" r="13" fill="#0284c7"/><text x="284" y="78" fill="#fff" font-size="13" font-weight="700">理解系统</text>
+    <line x1="381" y1="73" x2="452" y2="73" stroke="#475569" stroke-width="2"/>
+    <circle cx="476" cy="73" r="13" fill="#ea580c"/><text x="500" y="78" fill="#fff" font-size="13" font-weight="700">做出播放器</text>
+    <line x1="611" y1="73" x2="682" y2="73" stroke="#475569" stroke-width="2"/>
+    <circle cx="706" cy="73" r="13" fill="#16a34a"/><text x="730" y="78" fill="#fff" font-size="13" font-weight="700">完成实时通信</text>
+    <line x1="879" y1="73" x2="950" y2="73" stroke="#475569" stroke-width="2"/>
+    <circle cx="974" cy="73" r="13" fill="#f59e0b"/><text x="998" y="78" fill="#fff" font-size="13" font-weight="700">沉淀作品集</text>
+  </g>
+</svg>
