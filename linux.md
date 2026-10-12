@@ -279,3 +279,125 @@ mv source_dir target_dir
 ```
 
 行为：它会把 `source_dir` **整体移动到** `target_dir` 内部，变成 `target_dir/source_dir`。
+
+
+
+
+
+### 硬链接 vs 软链接
+
+> 底层核心：Linux 文件 = **inode + 数据块** 文件名只是 inode 的一个入口（目录项）。
+>
+> 
+
+**1. 硬链接（hard link）**
+
+```
+ln source target
+```
+
+- 硬链接**和原文件共享同一个 inode**。本质：给同一个文件数据，新增一个文件名。
+- 多个硬链接，inode 号完全一样。
+- 删除原文件：只是删掉一个目录项，**只要还有硬链接存在，文件数据不会被删除**。
+- 限制：
+	1. **不能跨文件系统（不能跨分区）**，inode 只在单个文件系统内有效
+	2. **不能链接目录**（防止目录环，系统不允许）
+- 属性：`ls -l` 看到的链接计数（第二列）会 + 1，修改任意一个硬链接，所有硬链接看到的内容一起变。
+- 大小：和原文件大小相同。
+
+
+
+**2. 软链接（symbolic link，符号链接）**
+
+```
+ln -s source target
+```
+
+- 软链接是**独立的新文件**，拥有自己独立 inode。
+- 这个文件里存储的内容：**原文件的路径字符串**。
+- 删除原文件：软链接本身还在，但变成**悬空链接 (dangling link)**，访问时报 No such file or directory。
+- 无硬链接的限制：
+	1. **可以跨分区、跨文件系统**
+	2. **可以链接目录**（日常最常用）
+- 属性：`ls -l` 会显示 `-> 原路径`，软链接文件大小等于原文件路径字符串长度。
+- 注意：相对路径写软链接时，是**相对于软链接所在目录**，不是当前执行 ln 的目录，很容易踩坑。
+
+
+
+**如何创建硬链接/软链接？**
+
+带 `-s`就是创建软链接
+
+`ln - make links between files`
+
+`-s, --symbolic`
+	`make symbolic links instead of hard links`
+
+```shell
+$ echo "hello" > 1.txt
+$ cat 1.txt 
+hello
+$ ln -s 1.txt sym_link
+$ ls -l
+total 32
+-rw-rw-r-- 1 ubuntu ubuntu     6 Oct 13 04:35 1.txt
+lrwxrwxrwx 1 ubuntu ubuntu     5 Oct 13 04:36 sym_link -> 1.txt
+$ cat sym_link 
+hello
+```
+
+
+
+
+
+### 查找文件
+
+**which命令**
+
+` which - locate a command`
+
+**注意：**which命令只能定位一个**可执行程序**
+
+```shell
+ubuntu@VM-0-3-ubuntu:~/code$ which sshd
+/usr/sbin/sshd
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
