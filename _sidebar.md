@@ -3,9 +3,10 @@
 - **🧱 公共基础**
   - [C 语言](c.md)
   - [数据结构](ds.md)
+  - [开发工具](tools.md)
   - [Linux 系统编程](linux.md)
   - [C++](cpp.md)
-  - [Python 辅助笔记](python.md)
+  - [Python](python.md)
 - **🎬 音视频与实时通信**
   - [32 周专项路线](roadmap.md#音视频与实时通信专项)
 - **🧠 AI 推理与端侧部署**

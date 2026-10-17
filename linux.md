@@ -212,6 +212,12 @@ drwxrwxr-x  2 ubuntu ubuntu 4096 Sep 26 16:52
 
 
 
+
+
+## 常用命令
+
+
+
 ### 通配符
 
 `*`：可以匹配任意多个字符
@@ -662,3 +668,94 @@ tar -xvf tarball
 ```
 
 如果要进行**压缩/解压**，只需要在参数上加上`-z`，其余操作不变。
+
+
+
+
+
+### 磁盘相关命令
+
+`df - report file system space usage`
+
+```shell
+$ df -h
+Filesystem      Size  Used Avail Use% Mounted on
+tmpfs           373M  1.1M  372M   1% /run
+/dev/vda2        50G   25G   23G  52% /
+tmpfs           1.9G   24K  1.9G   1% /dev/shm
+tmpfs           5.0M     0  5.0M   0% /run/lock
+cosfs           256T     0  256T   0% /lhcos-data
+tmpfs           373M   12K  373M   1% /run/user/1000
+```
+
+
+
+`du - estimate file space usage`
+
+查看磁盘具体使用情况
+
+```shell
+$ du -h code/
+28K     code/xxxx
+80K     code/
+```
+
+
+
+### 远程拷贝 - scp
+
+`scp — OpenSSH secure file copy`
+
+`scp src dest`
+
+
+
+**上传文件：**
+
+```shell
+# 传递单个文件
+scp dmesg.txt ubuntu@106.55.32.90:/home/ubuntu/code/
+# 传递整个目录
+scp -r folder ubuntu@106.55.32.90:/home/ubuntu/code/
+```
+
+
+
+**下载文件：**
+
+```shell
+scp ubuntu@106.55.32.90:/home/ubuntu/code/dmesg.txt .
+```
+
+scp有个缺点：每次上传文件的时候都需要手动的验证密码。
+
+可以用密钥对解决这个问题：
+
+```shell
+# 1.生成本地密钥对若本地已存在 ~/.ssh/id_rsa 或 ~/.ssh/id_ed25519 可跳过此步）
+ssh-keygen -t ed25519
+
+# 2.将公钥追加写入目的地的~/.ssh/authorized_keys文件里
+type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh ubuntu@106.55.32.90 "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
+
+# 3.现在再上传文件就不需要验证密码了
+scp .\dmesg.txt ubuntu@106.55.32.90:/home/ubuntu/code/
+dmesg.txt 
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
