@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1640" viewBox="0 0 1440 1640" role="img" aria-labelledby="title desc">
+<title id="title">mmap 内存映射：用地址访问文件</title><desc id="desc">Linux 普通文件共享映射示意：进程虚拟地址经页表映射到内存中的文件页缓存，缺页时由内核建立映射，必要时从磁盘读取。修改共享映射形成脏页，后台写回或通过 msync 同步。并对比私有映射与普通读写。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#526887"/></marker></defs>
+<rect width="1440" height="1640" fill="#f5f7fb"/>
+<style>text{font-family:"NotoSansSC","Noto Sans SC","Noto Sans CJK SC","Microsoft YaHei","PingFang SC",sans-serif;fill:#172c48}.title{font-size:40px;font-weight:700}.h{font-size:27px;font-weight:700}.body{font-size:22px}.small{font-size:19px;fill:#52647b}.code{font-family:Consolas,"DejaVu Sans Mono","NotoSansSC","Noto Sans SC",monospace;font-size:21px}.label{font-size:21px;font-weight:700}.arrow{fill:none;stroke:#526887;stroke-width:3;marker-end:url(#arrow)}</style>
+<text x="60" y="72" class="title">mmap 内存映射：用地址访问文件</text>
+<text x="60" y="112" class="small">以 Linux 普通文件、可读写的 MAP_SHARED 映射为主；不包含匿名映射、DAX 等特殊路径。</text>
+<rect x="50" y="145" width="1340" height="90" rx="18" fill="#edf3ff"/>
+<text x="75" y="179" class="label">建立映射 · 返回一段虚拟地址的起点 p</text>
+<text x="75" y="215" class="code">char *p = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);</text>
+<rect x="50" y="260" width="410" height="390" rx="18" fill="#eaf2ff" stroke="#cbdcf8" stroke-width="2"/>
+<rect x="480" y="260" width="440" height="390" rx="18" fill="#eaf2ff" stroke="#cbdcf8" stroke-width="2"/>
+<rect x="940" y="260" width="450" height="390" rx="18" fill="#e8f6f1" stroke="#c6e7d9" stroke-width="2"/>
+<text x="75" y="303" class="h" style="fill:#265cad">① 进程的虚拟地址空间</text>
+<text x="75" y="337" class="small">地址范围，不是一份文件副本</text>
+<text x="505" y="303" class="h" style="fill:#265cad">② 物理内存 RAM</text>
+<text x="505" y="337" class="small">内核管理的文件页缓存</text>
+<text x="965" y="303" class="h" style="fill:#207356">③ 磁盘中的文件</text>
+<text x="965" y="337" class="small">持久存储 · SSD / HDD</text>
+<rect x="75" y="365" width="360" height="46" rx="8" fill="#fff" stroke="#c3d5f0" stroke-width="2"/>
+<text x="90" y="395" class="code">p + 0     → 第 0 页</text>
+<rect x="75" y="425" width="360" height="46" rx="8" fill="#fff" stroke="#c3d5f0" stroke-width="2"/>
+<text x="90" y="455" class="code">p + 4096  → 第 1 页</text>
+<rect x="75" y="485" width="360" height="46" rx="8" fill="#fff" stroke="#c3d5f0" stroke-width="2"/>
+<text x="90" y="515" class="code">p + 8192  → 第 2 页</text>
+<rect x="595" y="365" width="290" height="46" rx="8" fill="#fff" stroke="#c3d5f0" stroke-width="2"/>
+<text x="615" y="395" class="body">文件页 0：实际字节</text>
+<rect x="595" y="425" width="290" height="46" rx="8" fill="#fff" stroke="#c3d5f0" stroke-width="2"/>
+<text x="615" y="455" class="body">文件页 1：实际字节</text>
+<rect x="595" y="485" width="290" height="46" rx="8" fill="#fff" stroke="#c3d5f0" stroke-width="2"/>
+<text x="615" y="515" class="body">文件页 2：实际字节</text>
+<rect x="1050" y="365" width="310" height="46" rx="8" fill="#fff" stroke="#bcdfd1" stroke-width="2"/>
+<text x="1070" y="395" class="code">文件偏移 0</text>
+<rect x="1050" y="425" width="310" height="46" rx="8" fill="#fff" stroke="#bcdfd1" stroke-width="2"/>
+<text x="1070" y="455" class="code">文件偏移 4096</text>
+<rect x="1050" y="485" width="310" height="46" rx="8" fill="#fff" stroke="#bcdfd1" stroke-width="2"/>
+<text x="1070" y="515" class="code">文件偏移 8192</text>
+<path class="arrow" d="M435 388H583"/>
+<text x="478" y="373" class="small">页表</text>
+<text x="470" y="417" class="small">地址映射</text>
+<path class="arrow" d="M1045 448H896"/>
+<text x="931" y="427" class="small">读入</text>
+<path class="arrow" d="M890 508H1040"/>
+<text x="931" y="487" class="small">写回</text>
+<text x="75" y="583" class="body">p[i]：CPU 访问虚拟地址</text>
+<text x="75" y="618" class="small">图中假设页大小为 4 KiB</text>
+<text x="505" y="583" class="body">共享映射访问这些缓存页</text>
+<text x="505" y="618" class="small">不是先复制到独立用户缓冲区</text>
+<text x="965" y="583" class="body">磁盘与 RAM 之间仍需 I/O</text>
+<text x="965" y="618" class="small">箭头表示传输，不是地址映射</text>
+<rect x="50" y="675" width="1340" height="100" rx="18" fill="#fff1d8" stroke="#f0d39c" stroke-width="2"/>
+<text x="75" y="714" class="h" style="fill:#915b12">核心：mmap 建立映射，通常不会立即把整个文件读入内存。</text>
+<text x="75" y="750" class="body">访问尚未建立页表映射的页时触发缺页异常；页已在缓存中可直接映射，否则需要读取文件。</text>
+<text x="60" y="824" class="h">把一次访问的过程串起来</text>
+<rect x="50" y="846" width="1340" height="56" rx="10" fill="#edf3ff"/>
+<text x="75" y="882" class="label">建立</text>
+<text x="170" y="882" class="code">mmap(...)</text>
+<text x="580" y="882" class="body">先建立虚拟地址区间与文件范围的关联。</text>
+<rect x="50" y="911" width="1340" height="56" rx="10" fill="#edf3ff"/>
+<text x="75" y="947" class="label">读取</text>
+<text x="170" y="947" class="code">char c = p[0];</text>
+<text x="580" y="947" class="body">缺页时由内核处理；映射就绪后，CPU 通过地址读数据。</text>
+<rect x="50" y="976" width="1340" height="56" rx="10" fill="#edf3ff"/>
+<text x="75" y="1012" class="label">修改</text>
+<text x="170" y="1012" class="code">p[0] = 'A';</text>
+<text x="580" y="1012" class="body">修改共享的缓存页，形成脏页；此时不代表已经落盘。</text>
+<rect x="50" y="1041" width="1340" height="56" rx="10" fill="#e8f6f1"/>
+<text x="75" y="1077" class="label">同步</text>
+<text x="170" y="1077" class="code">msync(p, len, MS_SYNC);</text>
+<text x="580" y="1077" class="body">内核可后台写回；此调用主动同步该范围并等待完成。</text>
+<rect x="50" y="1106" width="1340" height="56" rx="10" fill="#edf3ff"/>
+<text x="75" y="1142" class="label">解除</text>
+<text x="170" y="1142" class="code">munmap(p, len);</text>
+<text x="580" y="1142" class="body">解除地址映射；它本身不是同步落盘操作。</text>
+<text x="60" y="1222" class="h">两个标志，决定“修改写到哪里”</text>
+<rect x="50" y="1244" width="655" height="135" rx="18" fill="#e8f6f1" stroke="#c6e7d9" stroke-width="2"/>
+<rect x="725" y="1244" width="665" height="135" rx="18" fill="#fff" stroke="#cbdcf8" stroke-width="2"/>
+<text x="75" y="1280" class="h">MAP_SHARED · 共享映射</text>
+<text x="75" y="1321" class="body">修改可反映到文件，也可被其他共享映射看到。</text>
+<text x="75" y="1355" class="small">共享数据仍需同步机制；可见性不等于持久化。</text>
+<text x="750" y="1280" class="h">MAP_PRIVATE · 私有映射</text>
+<text x="750" y="1321" class="body">写入触发写时复制，修改进入私有内存页。</text>
+<text x="750" y="1355" class="small">这些修改不会写回原文件，msync 也不会改变这一点。</text>
+<text x="60" y="1430" class="h">与 read / write 对照：少一次显式复制，不等于一定更快</text>
+<text x="75" y="1471" class="body">read / write：用户缓冲区 ↔ 页缓存（复制）↔ 磁盘（I/O）</text>
+<text x="75" y="1510" class="body">mmap：虚拟地址 → 页缓存（映射）；页缓存 ↔ 磁盘（I/O）</text>
+<text x="75" y="1549" class="body">性能取决于访问模式、文件规模、缺页与页表成本；mmap 并没有绕过页缓存或磁盘。</text>
+<text x="60" y="1594" class="small">使用前确保文件长度足够（必要时 ftruncate）；检查 MAP_FAILED 和返回值；offset 须按页对齐。</text>
+<text x="60" y="1623" class="small">访问超出文件末尾的整页可能触发 SIGBUS；close(fd) 不会解除已有映射；元数据持久化另行考虑。</text>
+</svg>

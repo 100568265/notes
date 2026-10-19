@@ -1018,7 +1018,502 @@ int main(int argc, char **argv){
 
 
 
-#### open和read
+#### open，read，write
+
+不带用户态缓冲区的文件IO。
+
+
+
+**文件描述符**
+
+文件描述符就是进程内一个整数编号，用来代表进程打开的某个内核对象（不只是普通文件），进程靠这个数字跟内核说：我要操作这个打开的东西。
+
+> 记住：**fd 只是一个索引，不是文件本身，存在进程的文件描述符表里。**
+
+
+
+**open**
+
+`NAME`
+       `open, openat, creat - open and possibly create a file`
+
+`LIBRARY`
+       `Standard C library (libc, -lc)`
+
+`SYNOPSIS`
+       `#include <fcntl.h>`
+
+`int open(const char *pathname, int flags, ...
+                  /* mode_t mode */ );`
+
+成功时返回一个文件描述符，报错时返回-1。
+
+
+
+常见flag：
+
+| 掩码       | 含义                                                         |
+| ---------- | ------------------------------------------------------------ |
+| `O_RDONLY` | 以只读的方式打开                                             |
+| `O_WRONLY` | 以只写的方式打开                                             |
+| `O_RDWR`   | 以读写的方式打开                                             |
+| `O_CREAT`  | 如果文件不存在，则创建文件                                   |
+| `O_TRUNC`  | 如果文件存在，将文件的长度截至0                              |
+| `O_APPEND` | 以追加的方式打开文件，每次调用write时，文件指针先移动到文件末尾 |
+
+
+
+```c
+#include <fcntl.h>
+#include <stdio.h>  // printf perror
+#include <unistd.h> // close
+#include <stdlib.h>
+
+int main(){
+    int fd = open("zzz.txt",O_RDONLY|O_CREAT,0666);
+    if(fd == -1) {
+        perror("open failed");
+        exit(1);
+    } else{
+        printf("file opened, fd = %d\n",fd);
+    }
+    close(fd);
+}
+```
+
+`fopen`底层调用了`open`。
+
+
+
+ **read**
+
+`read - read from a file descriptor`
+
+`#include <unistd.h>`
+
+`ssize_t read(int fd, void *buf, size_t count);`
+
+```c
+// read的返回值有3种情况 
+// > 0 成功读取到的字节数
+// = 0 EOF
+// -1 报错
+char buf[10] = {0};
+int count = read(fd, buf, sizeof(buf));	// 普通文件的 read，只要有数据或者到 EOF，立刻返回
+```
+
+**Q：文本文件和二进制文件的区别是什么？**
+
+在 Linux / Unix 下：本质没有区别，磁盘上都是一串字节。所谓文本 / 二进制，是「打开方式、读写解释规则」的区别，不是文件本身的标记。Windows 才有明显差异。
+
+
+
+**write**
+
+`write - write to a file descriptor`
+
+`#include <unistd.h>`
+
+`ssize_t write(int fd, const void *buf, size_t count);`
+
+```c
+char buf[10] = "hello"；
+write(fd, buf, strlen(buf));
+```
+
+
+
+**实现一个cp功能**
+
+```c
+char buf[4096] = {0};
+while(1){
+    if(ret == 0) break;
+    memset(buf,0,sizeof(buf)); // 先清空buf
+    ssize_t ret = read(fd, buf, sizeof(buf));
+    write(fd, buf, ret);	// 每次读到多少就写多少
+}
+```
+
+考虑性能问题：
+
+由于read和write是系统调用，因此需要切换到内核态，来回切换状态有性能开销。
+
+因此，buf越大越好。这样可以尽量少执行系统调用。
+
+
+
+**ftruncate**
+
+文件的截断：
+
+大到小，截断末尾
+
+小到大，末尾补0
+
+`truncate, ftruncate - truncate a file to a specified length`
+
+`#include <unistd.h>`
+
+`int ftruncate(int fd, off_t length);`
+
+```c
+int ret = ftruncate(fd,20);
+```
+
+
+
+
+
+#### mmap - 内存映射
+
+CPU可以直接读写内存里的数据，这时候内存和外设之间的数据交互，如果也需要cpu去参与，效率就较低。
+
+**Q：**有没有一种设备，可以不需要cpu的参与，就可以完成内存与外设之间的交互？
+
+**A：**DMA - 直接内存访问。
+
+
+
+mmap的限制：
+
+1. 文件大小固定(ftruncate)
+2. 只能是磁盘文件
+3. 建立应设之前先open
+
+
+
+`mmap, munmap - map or unmap files or devices into memory`
+
+```c
+#include <sys/mman.h>
+
+void *mmap(void *addr,
+           size_t length, 
+           int prot, 
+           int flags, 
+           int fd, 
+           off_t offset);
+```
+
+addr：分配一片内存，填`NULL`，表示分配在堆上
+
+length：大小固定
+
+prot：保护选项，填`PROT_READ | PROT_WRITE`，表示可读写
+
+flags：属性
+
+fd：映射的文件
+
+offset：填0
+
+```c
+int main(){
+    int fd = open("test.txt",O_RDWR);
+    int ret = ftruncate(fd, 5);	// 固定文件大小
+    // 为内存映射分配空间
+    char *p = (char*)mmap(NULL, 5, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+    
+    // 像访问内存一样，访问文件
+    for(int i = 0; i < 5; ++i){
+        printf("%c",p[i]);
+    }
+    printf("\n");
+    p[0] = 'H';		// 像写入内存一样，写入文件
+    munmap(p, 5);
+}
+```
+
+**✅适合场景**
+
+1. 大文件随机访问：比如解析 10GB 的数据库 / 镜像文件，到处跳着读。
+2. 只读不写的大文件：省去内核→用户态拷贝，减少 CPU 开销
+3. 进程间共享内存：多个进程映射同一个文件，共享一块数据
+4. 解析二进制文件（elf、图片）：把文件当成数组直接索引，非常方便
+
+
+
+![mmap](./assets/mmap.svg)
+
+
+
+#### dup - fd的复制
+
+文件描述符的复制：
+
+1. fd数值上不同
+2. ptr偏移量共享
+
+`dup, dup2, dup3 - duplicate a file descriptor`
+
+`#include <unistd.h>`
+
+`int dup(int oldfd);`				 选取一个最小的可用fd，使旧fd和新fd指向同一个文件
+
+`int dup2(int oldfd, int newfd);`	让new_fd与old_fd指向同一个文件对象
+
+```c
+#include <unistd.h>
+#include <stdio.h>
+
+int main(){
+    int old_fd = open("1.txt",O_RDWR);
+    printf("old_fd = %d\n", old_fd);
+    int new_fd = dup(old_fd);	
+    printf("new_fd = %d\n", new_fd);
+    // 验证一下偏移是否共享
+    write(old_fd,"hello",5);
+    // close(old_fd); 
+    write(new_fd,"hello",5);
+    close(fd);
+}
+```
+
+**Q：注释这里的`close`是否会影响new_fd的写入?** 
+
+A：不会，fd这里的机制类似于C++智能指针，有一个引用计数，引用计数为0的时候才会释放。
+
+<img src="./assets/fd.svg" alt="fd"  />
+
+
+
+#### FIFO - 管道
+
+是进程间通信机制在文件系统的映射。
+
+
+
+**管道 - 命令**
+
+`mkfifo - make FIFOs (named pipes)`
+
+用命令创建一个管道
+
+```shell
+$ mkfifo 1.pipe
+```
+
+打开shell-1：
+
+```shell
+echo hello > 1.pipe
+```
+
+第二个shell：
+
+```
+cat 1.pipe
+```
+
+
+
+**管道 - 系统调用**
+
+`open O_WRONLY`	写端
+
+`open O_RDONLY`	读端
+
+
+
+**管道之单工通信**
+
+读端：
+
+```c
+int main(){
+    int fdr = open("1.pipe", O_RDONLY);
+    puts("pipe open!");
+    char buf[10] = {0};
+    read(fdr, buf, sizeof(buf));
+    puts(buf);
+    close(fdr);
+}
+```
+
+写端：
+
+```c
+int main(){
+    int fdw = open("1.pipe", O_WRONLY);
+    puts("pipe open!");
+    write(fdw, "hello", 5);
+    close(fdr);
+}
+```
+
+**管道是在open的时候阻塞的：**
+
+当一个进程打开了管道一端的时候，如果对端未被打开，进程处于阻塞状态，直到对端被另一个进程打开。
+
+
+
+**管道之双工通信**
+
+```c
+// chat1
+int main(){
+    int fdr = open("1.pipe",O_RDONLY);
+    int fdw = open("2.pipe",O_WRONLY);
+    puts("pipe open");
+    char buf[4096] = {0};
+    while(1){
+        // 从1号管道读取消息
+        memset(buf,0,sizeof(buf));
+        read(fdr,buf,sizeof(buf));
+        puts(buf);
+        
+        // 从标准输入流读取消息，并写入到2号管道
+        memset(buf,0,sizeof(buf));
+        read(STDIN_FILENO,buf,sizeof(buf));
+        write(fdw,buf,strlen(buf));
+    }
+}
+
+// chat2
+int main(){
+    int fdw = open("1.pipe",O_WRONLY);
+    int fdr = open("2.pipe",O_RDONLY);
+    puts("pipe open");
+    char buf[4096] = {0};
+    while(1){
+        // 从标准输入流读取消息，并写入1号管道
+        memset(buf,0,sizeof(buf));
+        read(STDIN_FILENO,buf,sizeof(buf));
+        write(fdw,buf,strlen(buf));
+        
+        // 从2号管道读取消息
+        memset(buf,0,sizeof(buf));
+        read(fdr,buf,sizeof(buf));	// !!!!如果chat1不回消息，chat2就会卡在这里阻塞
+        puts(buf);
+    }
+}
+```
+
+这里通信有个问题，就是chat2向1号管道写完数据之后，就开始`read`2号管道，这时候如果chat1不发数据，就会导致阻塞。
+
+这导致这2个进程之间，只能是一发一收，一发一收地进行通信。
+
+相当于这里程序是等完`STDIN_FILENO`就绪，再等`fdr`就绪。
+
+如果fdr一直不就绪，即使这时候`STDIN_FILENO`就绪了，程序也没有办法继续走，而是阻塞住。
+
+
+
+**如何解决这个问题？**
+
+IO多路复用
+
+
+
+
+
+#### IO多路复用 - select
+
+本质上是把之前串联地等待，变为并联的等待(一起等)。
+
+只要有fd就绪了，程序就去进行处理。
+
+
+
+```c
+#include <sys/select.h>
+
+int select(int nfds, 
+           fd_set *_Nullable restrict readfds,
+		   fd_set *_Nullable restrict writefds,
+		   fd_set *_Nullable restrict exceptfds,
+		   struct timeval *_Nullable restrict timeout);
+
+void FD_CLR(int fd, fd_set *set);
+int  FD_ISSET(int fd, fd_set *set);	// 询问操作
+void FD_SET(int fd, fd_set *set);	// 将某个fd加入监听
+void FD_ZERO(fd_set *set);			// 清空
+```
+
+`fd_set`监听集合：
+
+1. 创建`fd_set`
+2. 设置合适的监听(把会引发阻塞的fd加入监听)
+3. 调用select函数，会让进程阻塞，**当监听的fd中有任何一个就绪时，则select就绪**
+
+4. 轮询所有监听的fd是否就绪
+
+
+
+```c
+// chat1
+int main(){
+    int fdr = open("1.pipe",O_RDONLY);
+    int fdw = open("2.pipe",O_WRONLY);
+    puts("pipe open");
+    char buf[4096] = {0};
+    fd_set rdset;
+    while(1){
+        FD_ZERO(&rdset);
+        FD_SET(STDIN_FILENO, &rdset);
+        FD_SET(fdr, &rdset);
+        select(fdr+1,&rdset,NULL,NULL,NULL);
+        if(FD_ISSET(fdr, &rdset)){
+            puts("msg from pipe");
+            memset(buf,0,sizeof(buf));
+        	read(fdr,buf,sizeof(buf));
+        	puts(buf);
+        }
+        if(FD_ISSET(STDIN_FILENO, &rdset)){
+            puts("msg from stdin");
+            memset(buf,0,sizeof(buf));
+        	read(STDIN_FILENO,buf,sizeof(buf));
+        	write(fdw,buf,strlen(buf));
+        }
+    }
+}
+
+// chat2
+int main(){
+    int fdw = open("1.pipe",O_WRONLY);
+    int fdr = open("2.pipe",O_RDONLY);
+    puts("pipe open");
+    char buf[4096] = {0};
+    fd_set rdset;
+    while(1){
+		FD_ZERO(&rdset);
+        FD_SET(STDIN_FILENO, &rdset);
+        FD_SET(fdr, &rdset);
+        select(fdr+1,&rdset,NULL,NULL,NULL);
+        if(FD_ISSET(fdr, &rdset)){
+            puts("msg from pipe");
+            memset(buf,0,sizeof(buf));
+        	read(fdr,buf,sizeof(buf));
+        	puts(buf);
+        }
+        if(FD_ISSET(STDIN_FILENO, &rdset)){
+            puts("msg from stdin");
+            memset(buf,0,sizeof(buf));
+        	read(STDIN_FILENO,buf,sizeof(buf));
+        	write(fdw,buf,strlen(buf));
+        }
+    }
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
