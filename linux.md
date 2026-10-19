@@ -53,7 +53,7 @@ cat /etc/issue
 
 
 
-## 用户子系统
+### 用户子系统
 
 特权用户 - `root`
 
@@ -122,7 +122,7 @@ sudo passwd root
 
 
 
-## 文件子系统
+### 文件子系统
 
 **绝对路径**
 
@@ -142,7 +142,7 @@ sudo passwd root
 
 
 
-### 目录概览
+#### 目录概览
 
 `bin(binary)`：可执行程序
 
@@ -166,7 +166,7 @@ sudo passwd root
 
 
 
-### 文件类型&权限
+#### 文件类型&权限
 
 ```shell
 (base) ubuntu@VM-0-3-ubuntu:~$ ls -l
@@ -747,7 +747,278 @@ dmesg.txt
 
 
 
+## 系统编程
 
+
+
+**如何学习系统编程**
+
+权威资料：man手册
+
+```
+1   Executable programs or shell commands
+2   System calls (functions provided by the kernel)
+3   Library calls (functions within program libraries)
+7   Miscellaneous (including macro packages and conventions), e.g. man(7), groff(7), man-pages(7)
+8   System administration commands (usually only for root)
+```
+
+最重要的是2,3,7号手册。
+
+系统调用在3号手册。
+
+
+
+注意事项：
+
+1. 在linux中，返回值一般不实现功能，只用来处理报错。
+2. 要注意返回指针的时候，是否需要主调函数手动释放内存。
+
+
+
+
+
+### 文件
+
+狭义的文件：存储在**外部存储介质**(不在内存里)的数据集合
+
+广义的文件：速度慢，容量大，可以持久存储
+
+
+
+**文件类型**
+
+普通文件：目录文件 软链接
+
+字符设备文件：鼠标
+
+块设备文件：磁盘
+
+管道文件：程序间通信
+
+socket：网络通信
+
+
+
+**文件的使用**
+
+如果在linux上使用C的库函数fopen，那么fflush之后，不代表数据已经持久化到磁盘里。
+
+![fopen](./assets/fopen.svg)
+
+
+
+#### fopen
+
+`NAME`
+       `fopen, fdopen, freopen - stream open functions`
+
+`LIBRARY`
+       `Standard C library (libc, -lc)`
+
+`SYNOPSIS`
+       `#include <stdio.h>`
+
+​	`FILE *fopen(const char *restrict pathname, const char *restrict mode);`
+
+
+
+```c
+# fopen的准备工作
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#define ARGS_CHECK(argc, num){if(argc!=num){fprintf(stderr, "args error!\n");return-1;}}
+#define ERROR_CHECK(ret, num, msg){if(ret==num){perror(msg);return -1;}}
+```
+
+**注意：**这里要注意宏函数的预处理规则，否则可能看不懂：当预处理器看到`()`的时候，它会知道这是一个宏函数，会自动识别分割，类似宏常量的`#define N 5`，宏函数这里即使不用空格隔开，也能正确识别。
+
+```c
+int main(int argc, char *argv[]){
+    ARGS_CHECK(argc,2);
+    FILE *fp = fopen(argv[1],"r");
+    ERROR_CHECK(fp,NULL,"fopen");
+    fclose(fp);
+}
+```
+
+**Q1：为什么这里要用宏函数，而不是普通函数？**
+
+写成宏，是为了**原地展开 + 直接在外层函数 return**；普通函数做不到这个效果。
+
+
+
+**追加模式**
+
+追加：默认从文件结尾写入
+
+| 模式 | 含义     | 说明                                       |
+| ---- | -------- | ------------------------------------------ |
+| a    | 只写追加 |                                            |
+| a+   | 读写追加 | 打开时处于文件的开始，写入时跳到文件的末尾 |
+
+
+
+**注意：**
+
+文件里有三个指针。
+
+一个是base指针，指向文件开头。
+
+一个是end指针，指向文件末尾。
+
+一个是ptr指针，每次读写自动后移。
+
+
+
+可以使用`fseek`去重置ptr指针的位置。
+
+`NAME`
+`       fgetpos, fseek, fsetpos, ftell, rewind - reposition a stream`
+
+```c
+fseek(fp,0,SEEK_SET);
+```
+
+
+
+
+
+#### 改变文件的属性
+
+
+
+**修改文件的权限**
+
+`#include <sys/stat.h>`
+
+​	`int chmod(const char *pathname, mode_t mode);`
+
+
+
+**获取当前工作目录**
+
+`SYNOPSIS`
+       `#include <unistd.h>`
+
+​	`char *getcwd(char *buf, size_t size);`
+
+```c
+#include <stdio.h>
+#include <unistd.h>
+
+int main(){
+    char buf[1024] = {0};
+    char *ret = getcwd(buf,sizeof(buf));	
+    printf("ret = %p, ret = %s\n",ret,ret);
+    printf("ret = %p, buf = %s\n",buf,buf);
+}
+```
+
+
+
+**修改当前工作目录**
+
+`SYNOPSIS`
+       `#include <unistd.h>`
+
+​	`int chdir(const char *path);`
+
+```c
+#include <stdio.h>
+#include <unistd.h>
+
+int main(int argc, char **argv){
+    printf("before chdir, cwd = %s\n",getcwd(NULL,0));
+    int ret = chdir(argv[1]);
+    printf("after chdir, cwd = %s\n",getcwd(NULL,0));
+}
+```
+
+注意：这里改变的是你运行的那个进程的目录，不是shell的。
+
+
+
+**mkdir**
+
+`SYNOPSIS`
+       `#include <sys/stat.h>`
+
+​	`int mkdir(const char *pathname, mode_t mode);`
+
+```c
+#include <stdio.h>
+#include <sys/stat.h>
+
+int main(int argc, char **argv){
+    int ret = mkdir(argv[1],0777);
+}
+```
+
+
+
+
+
+#### 目录流
+
+目录在磁盘中，以链表的形式进行存储。
+
+每一个链表结点(目录项/directory entry)，存储了孩子的基本信息。
+
+
+
+**目录流：**
+
+是目录文件在内存中的缓冲区。
+
+类似于文件流，目录流也有一个指示位置的ptr指针。
+
+
+
+**opendir**
+
+`NAME`
+       `opendir, fdopendir - open a directory`
+
+`LIBRARY`
+       `Standard C library (libc, -lc)`
+
+`SYNOPSIS`
+       `#include <sys/types.h>`
+       `#include <dirent.h>`
+
+​	`DIR *opendir(const char *name);`
+
+
+
+**readdir**
+
+`SYNOPSIS`
+       `#include <dirent.h>`
+
+​	`struct dirent *readdir(DIR *dirp);`
+
+
+
+**stat**
+
+`NAME`
+       `stat, fstat, lstat, fstatat - get file status`
+
+`LIBRARY`
+       `Standard C library (libc, -lc)`
+
+`SYNOPSIS`
+       `#include <sys/stat.h>`
+
+​	`int stat(const char *restrict pathname, struct stat *restrict statbuf);`
+
+
+
+
+
+#### open和read
 
 
 

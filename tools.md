@@ -1,8 +1,8 @@
-# 1.GDB
+## 1.GDB
 
 
 
-## 快速入门
+### 快速入门
 
 使用条件：编译时开启：
 
@@ -18,7 +18,7 @@ gdb test
 
 
 
-## GDB的命令
+### GDB的命令
 
 | 命令名称               | 命令功能           | 使用语法                   |
 | ---------------------- | ------------------ | -------------------------- |
@@ -35,7 +35,7 @@ gdb test
 
 
 
-## GDB查看监视
+### GDB查看监视
 
 | 命令名称         | 命令功能     | 使用语法 |
 | ---------------- | ------------ | -------- |
@@ -46,7 +46,7 @@ gdb test
 
 
 
-## GDB查看内存
+### GDB查看内存
 
 `Examine memory: x/FMT ADDRESS.`
 
@@ -58,7 +58,7 @@ x/3tw arr
 
 
 
-## 检查崩溃的程序
+### 检查崩溃的程序
 
 类似于航空领域的**黑匣子**，core文件，存储着程序崩溃时刻内存的堆栈。
 
@@ -118,4 +118,222 @@ Program terminated with signal SIGSEGV, Segmentation fault.
 
 
 
-# 2.Makefile
+## 2.Makefile
+
+增量编译生成代码。
+
+一种"目标 - 依赖"的关系，只有目标不存在/目标比依赖旧，才会执行命令。
+
+
+
+### 基本原理
+
+**核心思想：**把最终生成的文件，作为第一个规则的目标
+
+```makefile
+main:main.o add.o
+	gcc main.o add.o -o main
+main.o:main.c
+	gcc -c main.c -o main.o
+add.o:add.c
+	gcc -c add.c -o add.o
+clean:
+	rm -f main.o add.o main
+rebuild:clean main
+```
+
+
+
+### 变量
+
+`Makefile`里一共有三种变量：
+
+1. 自定义变量：`变量名:=值`，所有值都是字符串类型
+2. 预定义变量
+3. 自动变量
+
+
+
+#### 自定义变量
+
+可以将上面的`Makefile`改写成：
+
+```makefile
+OUT:=main
+OBJS:=main.o add.o
+
+$(OUT):$(OBJS)
+	gcc main.o add.o -o main
+main.o:main.c
+	gcc -c main.c -o main.o
+add.o:add.c
+	gcc -c add.c -o add.o
+clean:
+	rm -f $(OUT) $(OBJS)
+rebuild:clean main
+```
+
+
+
+#### 预定义变量
+
+预定义变量就是内部定义好的变量，这些变量的含义是固定的。
+
+| 变量名   | 功能          | 默认含义 |
+| -------- | ------------- | -------- |
+| AR       | 打包库文件    | ar       |
+| AS       | 汇编程序      | as       |
+| CC       | C编译器       | gcc      |
+| CPP      | C 预处理器    | gcc -E   |
+| CXX      | C++编译器     | g++      |
+| RM       | 删除          | rm -f    |
+| ARFLAGS  | 库选项        |          |
+| ASFLAGS  | 汇编选项      |          |
+| CFLAGS   | C编译器选项   |          |
+| CPPFLAGS | C预编译器选项 |          |
+| CXXFLAGS | C++编译器选项 |          |
+
+可以继续优化当前`Makefile`文件：
+
+1. 把`gcc`换成预定义变量`CC`
+2. 把`rm -f`换成`RM`
+
+```makefile
+OUT:=main
+OBJS:=main.o add.o
+CC:=gcc
+
+$(OUT):$(OBJS)
+	$(CC) main.o add.o -o main
+main.o:main.c
+	$(CC) -c main.c -o main.o
+add.o:add.c
+	$(CC) -c add.c -o add.o
+clean:
+	$(RM) $(OUT) $(OBJS)
+rebuild:clean main
+```
+
+
+
+
+
+#### 自动变量
+
+自动变量就某些具有特殊含义的变量，它的含义和当前规则有关
+
+| 变量 | 说明                     |
+| ---- | ------------------------ |
+| $@   | 目标文件                 |
+| $<   | 第一个依赖文件           |
+| $^   | 所有依赖文件，以空格分隔 |
+
+继续改写`Makefile`：
+
+```makefile
+OUT:=main
+OBJS:=main.o add.o
+CC:=gcc
+
+$(OUT):$(OBJS)
+	$(CC) $^ -o $@
+main.o:main.c
+	$(CC) -c $^ -o $@
+add.o:add.c
+	$(CC) -c $^ -o $@
+clean:
+	$(RM) $(OUT) $(OBJS)
+rebuild:clean main
+```
+
+
+
+### 通配符
+
+用`%`字符管理格式关系，进一步优化：
+
+```makefile
+OUT:=main
+OBJS:=main.o add.o sub.o
+CC:=gcc
+
+$(OUT):$(OBJS)
+	$(CC) $^ -o $@
+%.o:%.c
+	$(CC) -c $^ -o $@
+clean:
+	$(RM) $(OUT) $(OBJS)
+rebuild:clean main
+```
+
+用在第二个规则中，按格式从第一个规则的依赖去匹配，这样可以增加这个`Makefile`的通用性；
+
+比如这时候多加一个sub.c的文件去编译也不需要修改`Makefile`。
+
+
+
+### 内置函数
+
+wildcard通配符：从当前目录所有文件中，取出符合要求的文件名。
+
+patsubst函数：实现模式文本替换(把%.c换成%.o)
+
+```makefile
+OUT:=main
+SRCS:=$(wildcard *.c)
+# OBJS:=main.o add.o sub.o
+OBJS:=$(patsubst %.c,%.o,$(SRCS))
+CC:=gcc
+
+$(OUT):$(OBJS)
+	$(CC) $^ -o $@
+%.o:%.c
+	$(CC) -c $^ -o $@
+clean:
+	$(RM) $(OUT) $(OBJS)
+rebuild:clean main
+```
+
+
+
+如果项目的结构是带`include`和`src`目录的：
+
+```shell
+project 
+	-makefile
+	-src
+		main.c
+	-include
+		head.h
+	-obj
+	main
+```
+
+`Makefile`文件应该这样改：
+
+```makefile
+OUT:=main
+SRCS:=$(wildcard src/*.c)
+# OBJS:=main.o add.o sub.o
+OBJS:=$(patsubst src/%.c,obj/%.o,$(SRCS))
+CC:=gcc
+CPPFLAGS += -Iinclude   # 指定头文件目录
+
+# 链接目标
+$(OUT):$(OBJS)
+	$(CC) $^ -o $@
+	
+# 编译c文件到obj下的o文件
+obj/%.o : src/%.c
+	$(CC) -c $^ -o $@
+	
+# 自动创建obj目录
+obj:
+	mkdir -p obj
+	
+clean:
+	$(RM) $(OUT) $(OBJS)
+	
+rebuild:clean main
+```
+
