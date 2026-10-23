@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1314" height="1516" viewBox="0 0 1314 1516" role="img" aria-labelledby="title"><title id="title">Buffer 与 Cache</title><rect width="1314" height="1516" fill="#fcfcfc"/><style>text{font-family:"Noto Sans SC","Microsoft YaHei","PingFang SC",sans-serif;fill:#111}.head{font-size:27px;font-weight:700}.name{font-size:44px;font-weight:700}.main{font-size:38px}.p{font-size:26px}.bold{font-size:26px;font-weight:700}.code{font-family:Consolas,"DejaVu Sans Mono",monospace;font-size:24px}</style>
+<rect x="26" y="13" width="1268" height="724" rx="26" fill="#fcfcfc" stroke="#dfdfdf" stroke-width="1"/>
+<text x="47" y="65" class="head" xml:space="preserve">1. Buffer：攒够数据再写入</text>
+<path d="M365 316H456 M434 302L456 316L434 330" fill="none" stroke="#8898aa" stroke-width="6"/>
+<path d="M877 316H959 M937 302L959 316L937 330" fill="none" stroke="#8898aa" stroke-width="6"/>
+<rect x="65" y="219" width="300" height="198" rx="30" fill="#e5edf5" stroke="#4188ce" stroke-width="3.5"/>
+<text x="215" y="303" class="name" xml:space="preserve" text-anchor="middle">程序</text>
+<text x="215" y="361" class="main" xml:space="preserve" text-anchor="middle">多次小写入</text>
+<rect x="458" y="183" width="419" height="270" rx="30" fill="#e1f1ed" stroke="#10a28d" stroke-width="3.5"/>
+<text x="667" y="251" class="name" xml:space="preserve" text-anchor="middle">Buffer</text>
+<rect x="498" y="291" width="69" height="72" rx="12" fill="#a2d5ca" stroke="#10a28d" stroke-width="3.5"/>
+<rect x="585" y="291" width="69" height="72" rx="12" fill="#8bcec1" stroke="#10a28d" stroke-width="3.5"/>
+<rect x="671" y="291" width="69" height="72" rx="12" fill="#6fc3b1" stroke="#10a28d" stroke-width="3.5"/>
+<rect x="757" y="291" width="69" height="72" rx="12" fill="#4fb3a3" stroke="#10a28d" stroke-width="3.5"/>
+<text x="667" y="418" class="main" xml:space="preserve" text-anchor="middle">暂存 / 合并</text>
+<rect x="963" y="219" width="292" height="198" rx="30" fill="#f7f0e4" stroke="#dda136" stroke-width="3.5"/>
+<text x="1109" y="303" class="name" xml:space="preserve" text-anchor="middle">磁盘</text>
+<text x="1109" y="361" class="main" xml:space="preserve" text-anchor="middle">批量写入</text>
+<text x="47" y="602" class="p" xml:space="preserve">比如使用</text>
+<rect x="160" y="577" width="122" height="32" rx="5" fill="#f3f3f3"/>
+<text x="168" y="602" class="code" xml:space="preserve">fwrite()</text>
+<text x="290" y="602" class="p" xml:space="preserve">多次写入小块数据，C 标准库可以先暂存在用户态缓冲区，达到一定条件后再调用</text>
+<rect x="47" y="623" width="108" height="32" rx="5" fill="#f3f3f3"/>
+<text x="54" y="648" class="code" xml:space="preserve">write()</text>
+<text x="157" y="648" class="p" xml:space="preserve">，减少系统调用次数。</text>
+<text x="47" y="706" class="bold" xml:space="preserve">Buffer 重点是：数据先暂存，等待合适时机处理。</text>
+<rect x="26" y="758" width="1268" height="743" rx="26" fill="#fcfcfc" stroke="#dfdfdf" stroke-width="1"/>
+<text x="47" y="810" class="head" xml:space="preserve">2. Cache：读取一次，下次直接复用</text>
+<path d="M376 1058H470 M448 1044L470 1058L448 1072" fill="none" stroke="#8898aa" stroke-width="6"/>
+<path d="M878 1058H959 M937 1044L959 1058L937 1072" fill="none" stroke="#8898aa" stroke-width="6"/>
+<rect x="65" y="957" width="311" height="209" rx="30" fill="#e5edf5" stroke="#4188ce" stroke-width="3.5"/>
+<text x="220" y="1045" class="name" xml:space="preserve" text-anchor="middle">程序</text>
+<text x="220" y="1103" class="main" xml:space="preserve" text-anchor="middle">read()</text>
+<rect x="473" y="918" width="404" height="281" rx="30" fill="#e1f1ed" stroke="#10a28d" stroke-width="3.5"/>
+<text x="675" y="990" class="name" xml:space="preserve" text-anchor="middle">Page Cache</text>
+<text x="675" y="1060" class="main" xml:space="preserve" text-anchor="middle">文件数据副本</text>
+<text x="675" y="1131" class="main" xml:space="preserve" text-anchor="middle" style="fill:#08a591">命中 → 直接读取</text>
+<rect x="963" y="957" width="292" height="209" rx="30" fill="#f7f0e4" stroke="#dda136" stroke-width="3.5"/>
+<text x="1109" y="1045" class="name" xml:space="preserve" text-anchor="middle">磁盘</text>
+<text x="1109" y="1105" class="main" xml:space="preserve" text-anchor="middle">未命中才读取</text>
+<text x="47" y="1355" class="p" xml:space="preserve">比如第一次</text>
+<rect x="186" y="1330" width="96" height="32" rx="5" fill="#f3f3f3"/>
+<text x="193" y="1355" class="code" xml:space="preserve">read()</text>
+<text x="290" y="1355" class="p" xml:space="preserve">读取文件时，数据可能需要从磁盘进入内核 Page Cache。</text>
+<text x="47" y="1413" class="p" xml:space="preserve">第二次读取相同数据，如果仍在 Page Cache 中，就不需要再次访问磁盘。</text>
+<text x="47" y="1470" class="bold" xml:space="preserve">Cache 重点是：保留数据，以便后续访问更快。</text>
+</svg>

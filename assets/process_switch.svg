@@ -1,0 +1,191 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1960" viewBox="0 0 1600 1960" role="img" aria-labelledby="title desc"><title id="title">进程切换：CPU 如何从 A 切换到 B</title><desc id="desc">单个逻辑 CPU 上的上下文切换结构图：进入内核，保存 A 的寄存器到内核栈及任务结构，调度器选择 B，切换地址空间与内核栈，恢复 B。两进程的内存仍保留在 RAM 中。</desc><defs>
+<marker id="blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#2e66b6"/></marker>
+<marker id="green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#208365"/></marker>
+<marker id="orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#bd7127"/></marker>
+<marker id="purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#8555ae"/></marker>
+<pattern id="hatch" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M0 10L10 0" stroke="#d7dfe9" stroke-width="2"/></pattern></defs><rect width="1600" height="1960" fill="#f5f7fb"/><style>text{font-family:"Noto Sans SC","Microsoft YaHei","PingFang SC",sans-serif;fill:#172c48}.title{font-size:42px;font-weight:700}.h{font-size:27px;font-weight:700}.b{font-size:22px}.small{font-size:19px;fill:#52647b}.tiny{font-size:17px;fill:#52647b}.code{font-family:Consolas,"DejaVu Sans Mono","Noto Sans SC",monospace;font-size:21px}.label{font-size:21px;font-weight:700}</style>
+<text x="60" y="75" class="title" xml:space="preserve">进程切换：同一个 CPU，如何接着执行另一个进程？</text>
+<text x="60" y="116" class="small" xml:space="preserve">以 Linux / x86-64、单个逻辑 CPU、不同地址空间的普通进程 A → B 为例；底层保存顺序做了简化。</text>
+<rect x="60" y="153" width="1480" height="120" rx="14" fill="#fff" stroke="#cbdcf8" stroke-width="2"/>
+<text x="80" y="184" class="small" xml:space="preserve">时间 →</text>
+<rect x="185" y="176" width="335" height="60" rx="5" fill="#dce9ff"/>
+<text x="210" y="215" class="label" xml:space="preserve">A：用户态执行</text>
+<rect x="520" y="176" width="535" height="60" rx="5" fill="#fff1d8"/>
+<text x="545" y="215" class="label" xml:space="preserve">进入内核 → 调度与上下文切换</text>
+<rect x="1055" y="176" width="460" height="60" rx="5" fill="#cceadd"/>
+<text x="1080" y="215" class="label" xml:space="preserve">B：恢复内核执行 → 返回用户态</text>
+<path d="M185 252H1505" fill="none" stroke="#2e66b6" stroke-width="3" marker-end="url(#blue)"/>
+<rect x="450" y="320" width="700" height="355" rx="24" fill="#eaf2ff" stroke="#95b5df" stroke-width="2"/>
+<path d="M485 310V320 M485 675V685" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M525 310V320 M525 675V685" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M565 310V320 M565 675V685" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M605 310V320 M605 675V685" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M645 310V320 M645 675V685" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M685 310V320 M685 675V685" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M725 310V320 M725 675V685" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M765 310V320 M765 675V685" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M805 310V320 M805 675V685" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M845 310V320 M845 675V685" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M885 310V320 M885 675V685" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M925 310V320 M925 675V685" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M965 310V320 M965 675V685" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M1005 310V320 M1005 675V685" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M1045 310V320 M1045 675V685" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M1085 310V320 M1085 675V685" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M1125 310V320 M1125 675V685" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M440 355H450 M1150 355H1160" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M440 390H450 M1150 390H1160" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M440 425H450 M1150 425H1160" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M440 460H450 M1150 460H1160" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M440 495H450 M1150 495H1160" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M440 530H450 M1150 530H1160" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M440 565H450 M1150 565H1160" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M440 600H450 M1150 600H1160" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M440 635H450 M1150 635H1160" fill="none" stroke="#95b5df" stroke-width="4"/>
+<text x="475" y="361" class="h" xml:space="preserve" style="fill:#265cad">CPU 核心 · 切换的是当前执行上下文</text>
+<rect x="475" y="382" width="380" height="218" rx="14" fill="#fff" stroke="#b2c9e8" stroke-width="2"/>
+<text x="495" y="414" class="label" xml:space="preserve">寄存器组（概念示意）</text>
+<path d="M485 458H845" fill="none" stroke="#c5d3e5" stroke-width="2"/>
+<text x="495" y="450" class="tiny" xml:space="preserve">PC / RIP</text>
+<text x="640" y="450" class="tiny" xml:space="preserve">A 的 PC → B 的 PC</text>
+<path d="M485 495H845" fill="none" stroke="#c5d3e5" stroke-width="2"/>
+<text x="495" y="487" class="tiny" xml:space="preserve">SP / RSP</text>
+<text x="640" y="487" class="tiny" xml:space="preserve">A 的 SP → B 的 SP</text>
+<path d="M485 532H845" fill="none" stroke="#c5d3e5" stroke-width="2"/>
+<text x="495" y="524" class="tiny" xml:space="preserve">通用寄存器</text>
+<text x="640" y="524" class="tiny" xml:space="preserve">A 的值 → B 的值</text>
+<path d="M485 569H845" fill="none" stroke="#c5d3e5" stroke-width="2"/>
+<text x="495" y="561" class="tiny" xml:space="preserve">标志 / 状态</text>
+<text x="640" y="561" class="tiny" xml:space="preserve">A 的状态 → B 的状态</text>
+<rect x="875" y="382" width="250" height="218" rx="14" fill="#fff" stroke="#b2c9e8" stroke-width="2"/>
+<text x="895" y="414" class="label" xml:space="preserve">MMU / 地址翻译</text>
+<text x="895" y="458" class="small" xml:space="preserve">④ 页表根（CR3）</text>
+<text x="895" y="497" class="small" xml:space="preserve">A 的页表 → B 的页表</text>
+<text x="895" y="545" class="small" xml:space="preserve">TLB 按架构规则</text>
+<text x="895" y="577" class="small" xml:space="preserve">失效或按标识区分</text>
+<text x="580" y="643" class="label" xml:space="preserve">② 保存 A</text>
+<text x="925" y="643" class="label" xml:space="preserve">⑤ 恢复 B</text>
+<rect x="60" y="334" width="325" height="265" rx="14" fill="#fff1d8" stroke="#e7c591" stroke-width="2"/>
+<text x="80" y="376" class="h" xml:space="preserve" style="fill:#915b12">① 先进入内核</text>
+<text x="80" y="420" class="b" xml:space="preserve">时钟中断 / 抢占请求</text>
+<text x="80" y="459" class="b" xml:space="preserve">阻塞的系统调用</text>
+<text x="80" y="498" class="b" xml:space="preserve">主动让出 CPU 等</text>
+<text x="80" y="550" class="small" xml:space="preserve">内核在允许调度时切换。</text>
+<text x="80" y="579" class="small" xml:space="preserve">不是每次中断都要换进程。</text>
+<path d="M385 475H438" fill="none" stroke="#bd7127" stroke-width="3" marker-end="url(#orange)"/>
+<rect x="1215" y="334" width="325" height="265" rx="14" fill="#e8f6f1" stroke="#b5d9ca" stroke-width="2"/>
+<text x="1235" y="376" class="h" xml:space="preserve" style="fill:#207356">⑥ B 接着执行</text>
+<text x="1235" y="420" class="small" xml:space="preserve">先恢复 B 的内核上下文，</text>
+<text x="1235" y="456" class="small" xml:space="preserve">再在适当时机返回用户态。</text>
+<text x="1235" y="508" class="small" xml:space="preserve">已有进程：接着上次的位置；</text>
+<text x="1235" y="544" class="small" xml:space="preserve">新建任务：走首次启动路径。</text>
+<path d="M1162 475H1203" fill="none" stroke="#208365" stroke-width="3" marker-end="url(#green)"/>
+<rect x="40" y="750" width="1520" height="680" rx="20" fill="#eef5f0" stroke="#bfd8ca" stroke-width="2"/>
+<text x="65" y="790" class="h" xml:space="preserve" style="fill:#207356">物理内存 RAM</text>
+<rect x="65" y="820" width="585" height="565" rx="14" fill="#eaf2ff" stroke="#b6cdec" stroke-width="2"/>
+<text x="85" y="858" class="h" xml:space="preserve">进程 A 的内核状态与用户数据</text>
+<rect x="85" y="885" width="240" height="220" rx="14" fill="#fff" stroke="#b6cdec" stroke-width="2"/>
+<text x="100" y="920" class="label" xml:space="preserve">task_struct 等</text>
+<text x="100" y="960" class="small" xml:space="preserve">任务状态 / 调度信息</text>
+<text x="100" y="996" class="small" xml:space="preserve">保存的内核栈指针</text>
+<text x="100" y="1032" class="small" xml:space="preserve">mm → 地址空间信息</text>
+<text x="100" y="1068" class="small" xml:space="preserve">关联的架构上下文</text>
+<rect x="345" y="885" width="285" height="220" rx="14" fill="#fff" stroke="#b6cdec" stroke-width="2"/>
+<text x="360" y="920" class="label" xml:space="preserve">A 的内核栈</text>
+<rect x="360" y="940" width="255" height="42" rx="2" fill="#dce9ff" stroke="#b6cdec" stroke-width="2"/>
+<text x="370" y="968" class="small" xml:space="preserve">用户态返回现场</text>
+<rect x="360" y="988" width="255" height="42" rx="2" fill="#dce9ff" stroke="#b6cdec" stroke-width="2"/>
+<text x="370" y="1016" class="small" xml:space="preserve">内核调用栈 / 返回位置</text>
+<rect x="360" y="1036" width="255" height="42" rx="2" fill="#dce9ff" stroke="#b6cdec" stroke-width="2"/>
+<text x="370" y="1064" class="small" xml:space="preserve">需保存的寄存器等</text>
+<text x="85" y="1149" class="label" xml:space="preserve">A 的页表</text>
+<text x="385" y="1149" class="label" xml:space="preserve">A 的用户内存页</text>
+<rect x="85" y="1167" width="240" height="36" rx="2" fill="#fff" stroke="#b6cdec" stroke-width="2"/>
+<text x="95" y="1192" class="tiny" xml:space="preserve">VPN 4 → PFN 9</text>
+<rect x="85" y="1207" width="240" height="36" rx="2" fill="#fff" stroke="#b6cdec" stroke-width="2"/>
+<text x="95" y="1232" class="tiny" xml:space="preserve">VPN 5 → PFN 12</text>
+<rect x="85" y="1247" width="240" height="36" rx="2" fill="#fff" stroke="#b6cdec" stroke-width="2"/>
+<text x="95" y="1272" class="tiny" xml:space="preserve">VPN 6 → PFN 15</text>
+<rect x="85" y="1287" width="240" height="36" rx="2" fill="#fff" stroke="#b6cdec" stroke-width="2"/>
+<text x="95" y="1312" class="tiny" xml:space="preserve">VPN 7 → PFN 18</text>
+<rect x="385" y="1170" width="245" height="44" rx="3" fill="#dce9ff" stroke="#b6cdec" stroke-width="2"/>
+<text x="405" y="1199" class="small" xml:space="preserve">代码页</text>
+<rect x="385" y="1221" width="245" height="44" rx="3" fill="#dce9ff" stroke="#b6cdec" stroke-width="2"/>
+<text x="405" y="1250" class="small" xml:space="preserve">堆 / 数据页</text>
+<rect x="385" y="1272" width="245" height="44" rx="3" fill="#dce9ff" stroke="#b6cdec" stroke-width="2"/>
+<text x="405" y="1301" class="small" xml:space="preserve">用户栈页</text>
+<path d="M325 1230H373" fill="none" stroke="#2e66b6" stroke-width="3" marker-end="url(#blue)"/>
+<text x="85" y="1356" class="small" xml:space="preserve">内存里的数据留在原处，不因切换而整体复制。</text>
+<rect x="950" y="820" width="585" height="565" rx="14" fill="#e8f6f1" stroke="#b5d9ca" stroke-width="2"/>
+<text x="970" y="858" class="h" xml:space="preserve">进程 B 的内核状态与用户数据</text>
+<rect x="970" y="885" width="240" height="220" rx="14" fill="#fff" stroke="#b5d9ca" stroke-width="2"/>
+<text x="985" y="920" class="label" xml:space="preserve">task_struct 等</text>
+<text x="985" y="960" class="small" xml:space="preserve">任务状态 / 调度信息</text>
+<text x="985" y="996" class="small" xml:space="preserve">保存的内核栈指针</text>
+<text x="985" y="1032" class="small" xml:space="preserve">mm → 地址空间信息</text>
+<text x="985" y="1068" class="small" xml:space="preserve">关联的架构上下文</text>
+<rect x="1230" y="885" width="285" height="220" rx="14" fill="#fff" stroke="#b5d9ca" stroke-width="2"/>
+<text x="1245" y="920" class="label" xml:space="preserve">B 的内核栈</text>
+<rect x="1245" y="940" width="255" height="42" rx="2" fill="#cceadd" stroke="#b5d9ca" stroke-width="2"/>
+<text x="1255" y="968" class="small" xml:space="preserve">用户态返回现场</text>
+<rect x="1245" y="988" width="255" height="42" rx="2" fill="#cceadd" stroke="#b5d9ca" stroke-width="2"/>
+<text x="1255" y="1016" class="small" xml:space="preserve">内核调用栈 / 返回位置</text>
+<rect x="1245" y="1036" width="255" height="42" rx="2" fill="#cceadd" stroke="#b5d9ca" stroke-width="2"/>
+<text x="1255" y="1064" class="small" xml:space="preserve">需保存的寄存器等</text>
+<text x="970" y="1149" class="label" xml:space="preserve">B 的页表</text>
+<text x="1270" y="1149" class="label" xml:space="preserve">B 的用户内存页</text>
+<rect x="970" y="1167" width="240" height="36" rx="2" fill="#fff" stroke="#b5d9ca" stroke-width="2"/>
+<text x="980" y="1192" class="tiny" xml:space="preserve">VPN 4 → PFN 40</text>
+<rect x="970" y="1207" width="240" height="36" rx="2" fill="#fff" stroke="#b5d9ca" stroke-width="2"/>
+<text x="980" y="1232" class="tiny" xml:space="preserve">VPN 5 → PFN 44</text>
+<rect x="970" y="1247" width="240" height="36" rx="2" fill="#fff" stroke="#b5d9ca" stroke-width="2"/>
+<text x="980" y="1272" class="tiny" xml:space="preserve">VPN 6 → PFN 48</text>
+<rect x="970" y="1287" width="240" height="36" rx="2" fill="#fff" stroke="#b5d9ca" stroke-width="2"/>
+<text x="980" y="1312" class="tiny" xml:space="preserve">VPN 7 → PFN 52</text>
+<rect x="1270" y="1170" width="245" height="44" rx="3" fill="#cceadd" stroke="#b5d9ca" stroke-width="2"/>
+<text x="1290" y="1199" class="small" xml:space="preserve">代码页</text>
+<rect x="1270" y="1221" width="245" height="44" rx="3" fill="#cceadd" stroke="#b5d9ca" stroke-width="2"/>
+<text x="1290" y="1250" class="small" xml:space="preserve">堆 / 数据页</text>
+<rect x="1270" y="1272" width="245" height="44" rx="3" fill="#cceadd" stroke="#b5d9ca" stroke-width="2"/>
+<text x="1290" y="1301" class="small" xml:space="preserve">用户栈页</text>
+<path d="M1210 1230H1258" fill="none" stroke="#208365" stroke-width="3" marker-end="url(#green)"/>
+<text x="970" y="1356" class="small" xml:space="preserve">内存里的数据留在原处，不因切换而整体复制。</text>
+<rect x="685" y="866" width="230" height="330" rx="14" fill="#fff1d8" stroke="#e7c591" stroke-width="2"/>
+<text x="705" y="908" class="h" xml:space="preserve" style="fill:#915b12">③ 调度器</text>
+<text x="705" y="949" class="small" xml:space="preserve">选择下一任务 B</text>
+<text x="705" y="985" class="small" xml:space="preserve">运行队列（示意）</text>
+<rect x="705" y="1002" width="190" height="44" rx="4" fill="#cceadd" stroke="#dfc69b" stroke-width="2"/>
+<text x="720" y="1031" class="label" xml:space="preserve">B · 可运行</text>
+<rect x="705" y="1055" width="190" height="44" rx="4" fill="#fff" stroke="#dfc69b" stroke-width="2"/>
+<text x="720" y="1084" class="label" xml:space="preserve">C · 可运行</text>
+<rect x="705" y="1108" width="190" height="44" rx="4" fill="#fff" stroke="#dfc69b" stroke-width="2"/>
+<text x="720" y="1137" class="label" xml:space="preserve">…</text>
+<text x="705" y="1180" class="tiny" xml:space="preserve">实际调度单位：线程</text>
+<path d="M540 600V712H500V873" fill="none" stroke="#2e66b6" stroke-width="3" marker-end="url(#blue)"/>
+<text x="460" y="734" class="small" xml:space="preserve" style="fill:#265cad">保存 A 的现场</text>
+<path d="M1400 885V707H865V575H843" fill="none" stroke="#208365" stroke-width="3" marker-end="url(#green)"/>
+<text x="1140" y="729" class="small" xml:space="preserve" style="fill:#207356">从 B 的现场恢复</text>
+<path d="M650 998H673" fill="none" stroke="#bd7127" stroke-width="3" marker-end="url(#orange)"/>
+<path d="M915 998H938" fill="none" stroke="#bd7127" stroke-width="3" marker-end="url(#orange)"/>
+<text x="694" y="1250" class="tiny" xml:space="preserve">A 若等待 I/O，</text>
+<text x="694" y="1281" class="tiny" xml:space="preserve">进入阻塞状态；</text>
+<text x="694" y="1317" class="tiny" xml:space="preserve">若只是被抢占，</text>
+<text x="694" y="1348" class="tiny" xml:space="preserve">通常仍可运行。</text>
+<text x="65" y="1410" class="small" xml:space="preserve">图中按所属关系组织页表和内存页，不代表物理连续；进程切换通常不需要把这些页写到磁盘。</text>
+<rect x="60" y="1470" width="1480" height="125" rx="14" fill="#fff1d8" stroke="#e7c591" stroke-width="2"/>
+<text x="85" y="1510" class="h" xml:space="preserve" style="fill:#915b12">保存“现场”，主要是保住下次能继续执行的 CPU 状态。</text>
+<text x="85" y="1549" class="b" xml:space="preserve">用户态现场、内核切换现场分层保存；上图把内核栈、任务结构和架构相关存储合并展示。</text>
+<text x="85" y="1580" class="small" xml:space="preserve">浮点 / SIMD 状态也需要按架构机制维护；并非所有寄存器都在同一个函数里一次保存。</text>
+<text x="60" y="1643" class="h" xml:space="preserve">把这三件事分开，才不会混淆</text>
+<rect x="60" y="1665" width="1480" height="56" rx="10" fill="#edf3ff"/>
+<text x="85" y="1701" class="label" xml:space="preserve">用户态 → 内核态</text>
+<text x="460" y="1701" class="b" xml:space="preserve">执行身份可以仍然是 A；一次系统调用或中断不一定发生任务切换。</text>
+<rect x="60" y="1730" width="1480" height="56" rx="10" fill="#edf3ff"/>
+<text x="85" y="1766" class="label" xml:space="preserve">A → B（不同进程）</text>
+<text x="460" y="1766" class="b" xml:space="preserve">切执行上下文，并切换到 B 的地址空间；页表与用户数据不用整体搬运。</text>
+<rect x="60" y="1795" width="1480" height="56" rx="10" fill="#e8f6f1"/>
+<text x="85" y="1831" class="label" xml:space="preserve">同进程线程 A1 → A2</text>
+<text x="460" y="1831" class="b" xml:space="preserve">仍要切寄存器和各自的栈；通常共享地址空间，无需更换进程页表。</text>
+<text x="60" y="1901" class="b" xml:space="preserve">切换成本 = 保存 / 恢复状态 + 调度与地址空间切换开销 + 可能的 TLB / CPU 缓存重新预热。</text>
+<text x="60" y="1938" class="small" xml:space="preserve">CPU 缓存通常不会因进程切换而整体清空；TLB 也不必一律全部清空，具体取决于架构与标识机制。</text>
+</svg>

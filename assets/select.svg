@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1810" viewBox="0 0 1440 1810" role="img" aria-labelledby="title desc">
+<title id="title">select 一图流：一个线程等待多个 fd</title><desc id="desc">展示 select 监视多个 TCP socket 的读就绪，从传入关注集合，到内核等待，再返回就绪集合，最后由程序调用 recv。解释就绪、集合修改、超时、返回值与典型循环。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#526887"/></marker></defs>
+<rect width="1440" height="1810" fill="#f5f7fb"/>
+<style>text{font-family:"Noto Sans SC","Microsoft YaHei","PingFang SC",sans-serif;fill:#172c48}.title{font-size:40px;font-weight:700}.h{font-size:27px;font-weight:700}.body{font-size:22px}.small{font-size:19px;fill:#52647b}.code{font-family:Consolas,"DejaVu Sans Mono","Noto Sans SC",monospace;font-size:21px}.label{font-size:21px;font-weight:700}.arrow{fill:none;stroke:#526887;stroke-width:3;marker-end:url(#arrow)}</style>
+<text x="60" y="72" class="title">select：一个线程，等待多个 fd 的 I/O 就绪</text>
+<text x="60" y="112" class="small">以 Linux 上 3 个已连接的 TCP socket 为例；主图只监视读就绪，且本轮只有 fd 5 收到数据。</text>
+<rect x="50" y="145" width="1340" height="90" rx="18" fill="#edf3ff"/>
+<text x="75" y="180" class="label">接口 · 把“关注哪些 fd”交给内核</text>
+<text x="75" y="216" class="code" xml:space="preserve">int n = select(maxfd + 1, &amp;readfds, &amp;writefds, &amp;exceptfds, &amp;timeout);</text>
+<rect x="50" y="260" width="395" height="360" rx="18" fill="#eaf2ff" stroke="#cbdcf8" stroke-width="2"/>
+<rect x="465" y="260" width="510" height="360" rx="18" fill="#eaf2ff" stroke="#cbdcf8" stroke-width="2"/>
+<rect x="995" y="260" width="395" height="360" rx="18" fill="#e8f6f1" stroke="#c6e7d9" stroke-width="2"/>
+<text x="75" y="303" class="h" style="fill:#265cad">① 用户态：提交关注集合</text>
+<text x="75" y="339" class="code" xml:space="preserve">readfds = {3, 5, 8}</text>
+<rect x="75" y="365" width="345" height="42" rx="8" fill="#fff" stroke="#c3d5f0" stroke-width="2"/>
+<text x="95" y="393" class="body">fd 3：关注它能否读取</text>
+<rect x="75" y="418" width="345" height="42" rx="8" fill="#fff" stroke="#c3d5f0" stroke-width="2"/>
+<text x="95" y="446" class="body">fd 5：关注它能否读取</text>
+<rect x="75" y="471" width="345" height="42" rx="8" fill="#fff" stroke="#c3d5f0" stroke-width="2"/>
+<text x="95" y="499" class="body">fd 8：关注它能否读取</text>
+<text x="75" y="567" class="small">nfds = 9（最大 fd 8 + 1）</text>
+<text x="75" y="598" class="small">不是“共有 3 个连接”</text>
+<text x="490" y="303" class="h" style="fill:#265cad">② 内核：检查并等待就绪</text>
+<text x="490" y="339" class="small">没有就绪 fd → 当前线程可睡眠</text>
+<rect x="570" y="365" width="380" height="42" rx="8" fill="#fff" stroke="#c3d5f0" stroke-width="2"/>
+<text x="590" y="393" class="body">fd 3   接收缓冲区：空</text>
+<rect x="570" y="418" width="380" height="42" rx="8" fill="#e8f6f1" stroke="#c3d5f0" stroke-width="2"/>
+<text x="590" y="446" class="body">fd 5   接收缓冲区：Hello</text>
+<rect x="570" y="471" width="380" height="42" rx="8" fill="#fff" stroke="#c3d5f0" stroke-width="2"/>
+<text x="590" y="499" class="body">fd 8   接收缓冲区：空</text>
+<text x="490" y="567" class="small">数据到达 → 唤醒、重新检查 → 返回</text>
+<text x="490" y="598" class="small">若调用时已有就绪 fd，则无需睡眠</text>
+<text x="1020" y="303" class="h" style="fill:#207356">③ 用户态：取得就绪集合</text>
+<text x="1020" y="339" class="code" xml:space="preserve">readfds = {5}，n = 1</text>
+<rect x="1020" y="365" width="345" height="95" rx="10" fill="#fff" stroke="#bcdfd1" stroke-width="2"/>
+<text x="1040" y="403" class="code" xml:space="preserve">FD_ISSET(5, &amp;readfds)</text>
+<text x="1040" y="439" class="body">→ 非零：fd 5 读就绪</text>
+<text x="1020" y="505" class="body">随后由程序调用 recv(5, ...)</text>
+<text x="1020" y="539" class="body">数据才进入用户缓冲区</text>
+<text x="1020" y="580" class="small">select 返回的是就绪信息</text>
+<path class="arrow" d="M420 386H558"/>
+<path class="arrow" d="M950 386H1008"/>
+<rect x="50" y="645" width="1340" height="100" rx="18" fill="#fff1d8" stroke="#f0d39c" stroke-width="2"/>
+<text x="75" y="684" class="h" style="fill:#915b12">核心：select 负责等待与报告就绪，实际读写仍由程序执行。</text>
+<text x="75" y="721" class="body">它让一个线程照看多个 fd；没有事件时可以睡眠，有事件后再依次处理，处理逻辑仍由该线程执行。</text>
+<text x="60" y="793" class="h">“就绪”到底是什么意思？</text>
+<rect x="50" y="815" width="1340" height="51" rx="10" fill="#edf3ff"/>
+<text x="75" y="848" class="code" xml:space="preserve">readfds</text>
+<text x="270" y="848" class="label">可读</text>
+<text x="435" y="848" class="body">通常有数据可读；TCP 有序关闭也会读就绪，读尽数据后 recv 返回 0。</text>
+<rect x="50" y="875" width="1340" height="51" rx="10" fill="#edf3ff"/>
+<text x="75" y="908" class="code" xml:space="preserve">writefds</text>
+<text x="270" y="908" class="label">可写</text>
+<text x="435" y="908" class="body">通常表示能写入一些数据；大块发送仍可能短写或阻塞。</text>
+<rect x="50" y="935" width="1340" height="51" rx="10" fill="#edf3ff"/>
+<text x="75" y="968" class="code" xml:space="preserve">exceptfds</text>
+<text x="270" y="968" class="label">特殊条件</text>
+<text x="435" y="968" class="body">例如 TCP 带外数据；它不是“所有错误”的集合。</text>
+<text x="60" y="1040" class="h">每轮复制一份关注集合：输入和输出用的是同一块 fd_set</text>
+<rect x="50" y="1060" width="760" height="386" rx="18" fill="#fff" stroke="#cbdcf8" stroke-width="2"/>
+<rect x="830" y="1060" width="560" height="386" rx="18" fill="#edf3ff"/>
+<text x="75" y="1093" class="code" xml:space="preserve">// master 保存所有要监视的 fd</text>
+<text x="75" y="1121" class="code" xml:space="preserve">for (;;) {</text>
+<text x="75" y="1149" class="code" xml:space="preserve">    fd_set ready = master;</text>
+<text x="75" y="1177" class="code" xml:space="preserve">    struct timeval tv = {5, 0};</text>
+<text x="75" y="1205" class="code" xml:space="preserve">    int n = select(maxfd + 1,</text>
+<text x="75" y="1233" class="code" xml:space="preserve">                   &amp;ready, NULL, NULL, &amp;tv);</text>
+<text x="75" y="1261" class="code" xml:space="preserve">    if (n &lt; 0) { /* 处理 EINTR / 错误 */ continue; }</text>
+<text x="75" y="1289" class="code" xml:space="preserve">    if (n == 0) continue;  // 本轮超时</text>
+<text x="75" y="1317" class="code" xml:space="preserve">    for (int fd = 0; fd &lt;= maxfd; ++fd)</text>
+<text x="75" y="1345" class="code" xml:space="preserve">        if (FD_ISSET(fd, &amp;ready))</text>
+<text x="75" y="1373" class="code" xml:space="preserve">            handle_read(fd);</text>
+<text x="75" y="1401" class="code" xml:space="preserve">}</text>
+<text x="855" y="1101" class="label">调用前：ready = {3, 5, 8}</text>
+<text x="855" y="1141" class="label">调用后：ready = {5}</text>
+<text x="855" y="1181" class="body">不恢复集合，下一轮就会漏掉 3 和 8。</text>
+<text x="855" y="1236" class="label">Linux 还会修改 timeout。</text>
+<text x="855" y="1276" class="body">每轮重新设置；NULL 表示无限等待，</text>
+<text x="855" y="1312" class="body">零超时表示只检查一次、立即返回。</text>
+<text x="855" y="1370" class="small">返回值：&gt; 0 就绪位总数；0 超时；-1 出错。</text>
+<text x="855" y="1405" class="small">同一 fd 出现在多个返回集合会被重复计数。</text>
+<text x="60" y="1495" class="h">实际使用时，记住这四点</text>
+<rect x="50" y="1515" width="1340" height="48" rx="10" fill="#edf3ff"/>
+<text x="75" y="1547" class="label">非阻塞 I/O</text>
+<text x="285" y="1547" class="small">就绪后状态仍可能变化；通常配合 O_NONBLOCK，处理 EAGAIN、短读和短写。</text>
+<rect x="50" y="1571" width="1340" height="48" rx="10" fill="#edf3ff"/>
+<text x="75" y="1603" class="label">移除已关闭 fd</text>
+<text x="285" y="1603" class="small">recv 返回 0 时处理连接关闭，并从 master 移除该 fd，避免反复收到 EOF 就绪。</text>
+<rect x="50" y="1627" width="1340" height="48" rx="10" fill="#edf3ff"/>
+<text x="75" y="1659" class="label">按需监视可写</text>
+<text x="285" y="1659" class="small">有待发送数据时再关注 writefds；一直监视通常可写的 socket，容易造成忙循环。</text>
+<rect x="50" y="1683" width="1340" height="48" rx="10" fill="#e8f6f1"/>
+<text x="75" y="1715" class="label">范围与成本</text>
+<text x="285" y="1715" class="small">glibc 的 fd_set 通常要求 fd &lt; 1024；集合反复传递与扫描，规模大时考虑 poll / epoll。</text>
+<text x="60" y="1774" class="small">注：代码是只监视读取的循环骨架；handle_read 负责实际读取与错误处理。参考：Linux man-pages · select(2)。</text>
+</svg>

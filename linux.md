@@ -1416,14 +1416,16 @@ IO多路复用
 
 
 
+fd_set的本质是一个位图(bit map)
+
 ```c
 #include <sys/select.h>
 
 int select(int nfds, 
-           fd_set *_Nullable restrict readfds,
-		   fd_set *_Nullable restrict writefds,
-		   fd_set *_Nullable restrict exceptfds,
-		   struct timeval *_Nullable restrict timeout);
+           fd_set *readfds,	// 传入传出参数
+		   fd_set *writefds,
+		   fd_set *exceptfds,
+		   struct timeval *timeout);
 
 void FD_CLR(int fd, fd_set *set);
 int  FD_ISSET(int fd, fd_set *set);	// 询问操作
@@ -1458,12 +1460,14 @@ int main(){
             puts("msg from pipe");
             memset(buf,0,sizeof(buf));
         	read(fdr,buf,sizeof(buf));
+            if(read == 0) break;	// 对端关闭聊天
         	puts(buf);
         }
         if(FD_ISSET(STDIN_FILENO, &rdset)){
             puts("msg from stdin");
             memset(buf,0,sizeof(buf));
         	read(STDIN_FILENO,buf,sizeof(buf));
+            if(read == 0) break;	// 我方主动关闭聊天
         	write(fdw,buf,strlen(buf));
         }
     }
@@ -1485,17 +1489,478 @@ int main(){
             puts("msg from pipe");
             memset(buf,0,sizeof(buf));
         	read(fdr,buf,sizeof(buf));
+            if(read == 0) break;	// 对端关闭聊天
         	puts(buf);
         }
         if(FD_ISSET(STDIN_FILENO, &rdset)){
             puts("msg from stdin");
             memset(buf,0,sizeof(buf));
         	read(STDIN_FILENO,buf,sizeof(buf));
+            if(read == 0) break;	// 我方主动关闭聊天
         	write(fdw,buf,strlen(buf));
         }
     }
 }
 ```
+
+
+
+**select的超时**
+
+`#include <sys/time.h>`
+
+`struct timeval {`
+       `time_t       tv_sec;   /* Seconds */`
+       `suseconds_t  tv_usec;  /* Microseconds */`
+
+ `};`
+
+
+
+```c
+#include <sys/select.h>
+
+int select(int nfds, 
+           fd_set *readfds,	// 传入传出参数
+		   fd_set *writefds,
+		   fd_set *exceptfds,
+		   struct timeval *timeout);
+
+void FD_CLR(int fd, fd_set *set);
+int  FD_ISSET(int fd, fd_set *set);	// 询问操作
+void FD_SET(int fd, fd_set *set);	// 将某个fd加入监听
+void FD_ZERO(fd_set *set);			// 清空
+```
+
+timeout也是传入传出参数，每次循环开始时，要设置timeout
+
+```c
+int main(){
+    int fdw = open("1.pipe",O_WRONLY);
+    int fdr = open("2.pipe",O_RDONLY);
+    puts("pipe open");
+    char buf[4096] = {0};
+    fd_set rdset;
+    while(1){
+		FD_ZERO(&rdset);
+        FD_SET(STDIN_FILENO, &rdset);
+        FD_SET(fdr, &rdset);
+        
+        // 设置超时 2.5s
+        struct timeval timeout;
+        timeout.tv_sec = 2;
+        timeout.tv_usec = 500000;
+        int sret = select(fdr+1,&rdset,NULL,NULL,&timeout);
+        if(sret == 0){
+            puts("超时导致的就绪");
+            continue;
+        }
+        if(FD_ISSET(fdr, &rdset)){
+            puts("msg from pipe");
+            memset(buf,0,sizeof(buf));
+        	int count = read(fdr,buf,sizeof(buf));
+            if(count == 0) break;	// 对端关闭聊天
+        	puts(buf);
+        }
+        if(FD_ISSET(STDIN_FILENO, &rdset)){
+            puts("msg from stdin");
+            memset(buf,0,sizeof(buf));
+        	int count = read(STDIN_FILENO,buf,sizeof(buf));
+            if(count == 0) break;	// 我方主动关闭聊天
+        	write(fdw,buf,strlen(buf));
+        }
+    }
+}
+```
+
+
+
+
+
+**select同时监听读写**
+
+在简单的控制台聊天或少量数据传输时，盲写通常不会卡住，因为管道/Socket 的内核发送缓冲区很大（Linux 默认管道缓冲区通常为 64KB）。
+
+但如果遇到以下场景，**不监听“写”就会出大问题**：
+
+1. **写缓冲区满了（避免阻塞）**： 如果对端处理很慢，或者你在短时间内发送大量数据，`fdw` 的内核缓冲区被塞满。此时你直接调用 `write()`，**整个程序就会死死卡在 `write()` 这一行代码上**，再也无法读取对端发来的消息。
+2. **非阻塞 I/O（Non-blocking I/O）**： 在高性能网络编程中，Socket 通常设置为非阻塞。如果缓冲区满了，`write()` 会直接返回 `EAGAIN` 报错。此时必须把该 FD 加入 `select` 的写集合（`writefds`）中，等内核通知“缓冲区有空间了”，再去调用 `write()` 发送剩余数据。
+
+```c
+int main(){
+    int fdw = open("1.pipe",O_WRONLY);
+    int fdr = open("2.pipe",O_RDONLY);
+    puts("pipe open");
+    char buf[4096] = {0};
+    fd_set rdset;
+    fd_set wrset;
+    int count = 0;
+    while(1){
+		FD_ZERO(&rdset);
+        FD_SET(fdr,&rdset);
+        FD_ZERO(&wrset);
+        FD_SET(fdw,&wrset);
+        select(fdw+1,&rdset,&wrset,NULL,NULL);
+        if(FD_ISSET(fdr,&rdset)){	// 读端就绪
+            printf("read count = %d",count++);
+            read(fdr,buf,2048);
+        }
+        if(FD_ISSET(fdw,&wrset)){	// 写端就绪
+            printf("write count = %d",count++);
+            write(fdw,buf,4096);
+        }
+        sleep(1);
+    }
+}
+```
+
+
+
+**select的劣势**
+
+1. 监听和就绪在一起
+2. 文件数量固定(位图)
+3. 大量用户态和内核态的拷贝
+4. 找就绪浪费时间(轮询)
+
+
+
+![select](./assets/select.svg)
+
+
+
+
+
+### 进程
+
+
+
+#### **初识虚拟内存**
+
+![virtual-memory-structure](./assets/virtual-memory-structure.svg)
+
+
+
+#### **进程的切换**
+
+![process_switch](./assets/process_switch.svg)
+
+
+
+#### **pid**
+
+pid是一个正整数，给用户去标识不同的进程。
+
+```shell
+ubuntu@VM-0-3-ubuntu:~$ ps -l
+F S   UID     PID    PPID  C PRI  NI ADDR SZ WCHAN  TTY          TIME CMD
+0 S  1000  358737  358735  0  80   0 -  2202 do_wai pts/0    00:00:00 bash
+0 R  1000  359942  358737  0  80   0 -  2449 -      pts/0    00:00:00 ps
+```
+
+PPID：代表父进程的pid，linux所有进程都存在一种亲缘关系。
+
+
+
+**linux系统的开机过程**
+
+```
+bootloader[bootloader] --> P0["0 ('盘古')"]
+    
+P0 --> P1["1 / init ('女娲')<br/>(启动所有用户进程)"]
+P0 --> P2["2"]
+P0 --> P0_end["0号终止"]
+    
+P1 --> ttys["ttys (login, shell)"]
+P2 --> kernel_proc["启动所有内核进程"]
+```
+
+
+
+`getpid, getppid - get process identification`
+
+`#include <unistd.h>`
+
+`pid_t getpid(void);`
+`pid_t getppid(void);`
+
+```c
+#include <unistd.h>
+#include <stdio.h>
+
+int main(){
+
+        pid_t pid = getpid();
+        pid_t ppid = getppid();
+        printf("pid = %d\n",pid);
+    	printf("ppid = %d\n",ppid);
+}
+```
+
+
+
+#### 进程的权限 - getuid
+
+**进程权限**是指一个正在运行的程序（进程）在操作系统中所拥有的**资源访问与操作能力**。
+
+在操作系统安全模型中，**进程是发起操作的“主体”（Subject）**，而**文件/网络/硬件等是接受操作的“客体”（Object）**。
+
+uid：真实身份
+
+euid：有效身份(起作用的身份)
+
+
+
+`getuid, geteuid - get user identity`
+
+`#include <unistd.h>`
+
+`uid_t getuid(void);`
+`uid_t geteuid(void);`
+
+```c
+#include <unistd.h>
+
+int main(){
+    uid_t uid = getuid();
+    uid_t euid = geteuid();
+    printf("uid = %d, euid = %d\n",uid,euid);
+}
+```
+
+默认情况下，一个进程的uid和euid是一样的，都是启动这个进程的用户。
+
+
+
+
+
+#### 进程相关的命令
+
+| 命令名  | 详细信息                          |
+| ------- | --------------------------------- |
+| ps      | 查看系统中的进程                  |
+| top     | 动态显示系统中的进程              |
+| nice    | 用于shell脚本中，指定程序的优先级 |
+| renice  | 改变正在运行进程的优先级          |
+| kill    | 发送信号                          |
+| crontab | 控制cron后台进程                  |
+| bg      | 将暂停的进程放到后台              |
+
+
+
+##### **查看进程的两种风格**
+
+`ps -elf`
+
+```shell
+F S UID          PID    PPID  C PRI  NI ADDR SZ WCHAN  STIME TTY          TIME CMD
+1 S root           2       0  0  80   0 -     0 -      Oct22 ?        00:00:00 [kthreadd]
+1 S root           3       2  0  80   0 -     0 -      Oct22 ?        00:00:00 
+```
+
+F - flag属性
+
+S - status状态
+
+UID - 这里实际显示的是用户的名字
+
+PID
+
+PPID
+
+C - cpu占用率
+
+PRI - 优先级
+
+NI - 优先级
+
+SZ - 驻留内存
+
+WCHAN - 阻塞的系统调用
+
+STIME - 启动时间
+
+TTY - 终端设备
+
+TIME - CPU占用总时间
+
+CMD - 启动进程的命令
+
+
+
+`ps aux`
+
+```shell
+USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+root           2  0.0  0.0      0     0 ?        S    Oct22   0:00 [kthreadd]
+root           4  0.0  0.0      0     0 ?        I<   Oct22   0:00 [kworker/R-rcu_gp]
+root           5  0.0  0.0      0     0 ?        I<   Oct22   0:00 [kworker/R-sync_wq]
+```
+
+VSZ - 虚拟内存空间
+
+RSS - 驻留集大小
+
+STAT - status状态
+
+
+
+##### **查看内存**
+
+`free -h`
+
+```shell
+               total        used        free      shared  buff/cache   available
+Mem:           3.6Gi       892Mi       514Mi       2.0Mi       2.5Gi       2.8Gi
+Swap:          2.0Gi          0B       2.0Gi
+```
+
+**Q1：buff和cache的区别？**
+
+![buff&cache](./assets/buff&cache.svg)
+
+
+
+##### `top`
+
+```shell
+top - 21:21:39 up 1 day,  2:39,  2 users,  load average: 0.18, 0.12, 0.10
+Tasks: 129 total,   1 running, 128 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  0.5 us,  0.3 sy,  0.0 ni, 99.2 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st 
+MiB Mem :   3718.7 total,    515.9 free,    890.4 used,   2573.5 buff/cache     
+MiB Swap:   2048.0 total,   2048.0 free,      0.0 used.   2828.4 avail Mem 
+
+    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND                                               
+   7454 root      20   0  712692  25544   6432 S   0.7   0.7  13:04.33 barad_agent                                           
+   7948 root      20   0 1024656  71460  36132 S   0.3   1.9   8:37.31 YDService                                             
+ 369951 ubuntu    20   0 1772360 121932  55436 S   0.3   3.2   0:02.56 MainThread                                            
+      1 root      20   0   25720  17140  11756 S   0.0   0.5   0:07.42 systemd                                               
+      2 root      20   0       0      0      0 S   0.0   0.0   0:00.03 kthreadd                                                                   
+      4 root       0 -20       0      0      0 I   0.0   0.0   0:00.00 kworker/R-rcu_gp                                      
+      5 root       0 -20       0      0      0 I   0.0   0.0   0:00.00 kworker/R-sync_wq
+```
+
+CPU的时间分配：
+
+us : time running un-niced user processes
+
+sy : time running kernel processes
+
+ni : time running niced user processes
+
+id : time spent in the kernel idle handler
+
+wa : time waiting for I/O completion
+
+hi : time spent servicing hardware interrupts
+
+si : time spent servicing software interrupts
+
+st : time stolen from this vm by the hypervisor
+
+
+
+##### 优先级 - `nice/renice`
+
+**优先级系统**
+
+140个优先级级别，用140个整数来描述。
+
+ubuntu系统中：-40 ~ 99来描述，数值越低，优先级别越高。
+
+-40 ~ 59：实时优先级
+
+ 60 ~ 99：普通优先级，完全公平调度
+
+
+
+nice：以某个nice值去启动程序
+
+```shell
+nice -n 19 ./test
+```
+
+
+
+
+
+##### 定时任务 - crontab
+
+`crontab` 是 Linux 系统中用来设置**定时循环任务**（Cron Job）的工具。
+
+1. **核心常用命令**
+
+| **命令**                     | **功能描述**                                                 |
+| ---------------------------- | ------------------------------------------------------------ |
+| **`crontab -e`**             | 编辑当前用户的定时任务表（首次使用会提示选择编辑器，如 nano 或 vim） |
+| **`crontab -l`**             | 查看当前已配置的所有定时任务列表                             |
+| **`crontab -r`**             | 删除当前用户**所有的**定时任务（慎用！）                     |
+| **`crontab -u username -e`** | （需 root 权限）编辑指定用户的定时任务                       |
+
+
+
+2. **时间语法格式**
+
+在 `crontab -e` 打开的文件中，每一行代表一条定时任务，格式固定为 **5 个时间占位符 + 1 个执行命令**：
+
+Plaintext
+
+```
+*   *   *   *   *   command_to_execute
+┬   ┬   ┬   ┬   ┬
+│   │   │   │   └─── 星期几 (0 - 7，0和7均代表星期日)
+│   │   │   └─────── 月份 (1 - 12)
+│   │   └─────────── 日/月中天 (1 - 31)
+│   └─────────────── 小时 (0 - 23)
+└─────────────────── 分钟 (0 - 59)
+```
+
+特殊符号说明：
+
+- **`\*`**：代表任意值（匹配每一个时间点）。
+- **`,`**：代表枚举分割（如 `1,3,5` 代表第 1、3、5 分钟/小时）。
+- **`-`**：代表范围（如 `1-5` 代表 1 到 5 点）。
+- **`/\*`**：代表时间间隔/频率（如 `*/10` 代表每隔 10 个单位）。
+
+3. **常见实战示例**
+
+Bash
+
+```
+# 每天凌晨 02:00 清理一次日志
+0 2 * * * /bin/rm -rf /tmp/logs/*
+
+# 每周一上午 08:30 发送周报
+30 8 * * 1 /home/user/send_report.sh
+
+# 每个月 1 号的凌晨 00:00 备份数据库
+0 0 1 * * /home/user/backup_db.sh
+
+# 工作日（周一至周五）每天 09:00 到 18:00，每整点提示一次
+0 9-18 * * 1-5 /home/user/notice.sh
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

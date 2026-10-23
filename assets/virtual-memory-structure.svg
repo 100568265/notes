@@ -1,0 +1,211 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="2140" viewBox="0 0 1600 2140" role="img" aria-labelledby="title desc">
+<title id="title">虚拟内存：从一条 load 指令到物理内存</title><desc id="desc">结构图展示进程虚拟地址空间、CPU 内部 MMU 与 TLB、内存中的页表和物理页框、缺页异常进入内核及磁盘后备存储；另图展示两个进程地址隔离与共享页，最后演示地址转换计算。</desc>
+<defs>
+<marker id="blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#2e66b6"/></marker>
+<marker id="green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#208365"/></marker>
+<marker id="orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#bf7125"/></marker>
+<marker id="purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#8555ae"/></marker>
+<pattern id="hole" width="12" height="12" patternUnits="userSpaceOnUse"><path d="M0 12L12 0" stroke="#d7dfe9" stroke-width="2"/></pattern></defs><rect width="1600" height="2140" fill="#f5f7fb"/>
+<style>text{font-family:"Noto Sans SC","Microsoft YaHei","PingFang SC",sans-serif;fill:#172c48}.title{font-size:42px;font-weight:700}.h{font-size:27px;font-weight:700}.b{font-size:22px}.small{font-size:19px;fill:#52647b}.tiny{font-size:17px;fill:#52647b}.code{font-family:Consolas,"DejaVu Sans Mono","Noto Sans SC",monospace;font-size:21px}.label{font-size:21px;font-weight:700}</style>
+<text x="60" y="76" class="title" xml:space="preserve">虚拟内存：从一条指令，到真正存放数据的内存</text>
+<text x="60" y="118" class="small" xml:space="preserve">以 Linux / x86-64、4 KiB 普通页为例；页表层级与 CPU 数据缓存做了简化，结构不按物理比例。</text>
+<rect x="60" y="180" width="315" height="1030" rx="14" fill="#fff" stroke="#cbdcf8" stroke-width="2"/>
+<text x="80" y="220" class="h" xml:space="preserve">进程 A · 虚拟地址空间</text>
+<text x="80" y="252" class="small" xml:space="preserve">程序看到的地址布局</text>
+<text x="85" y="290" class="small" xml:space="preserve">高地址</text>
+<rect x="85" y="310" width="265" height="110" rx="0" fill="#dce9ff" stroke="#ccd8e8" stroke-width="2"/>
+<text x="105" y="373.0" class="label" xml:space="preserve">栈 stack</text>
+<rect x="85" y="420" width="265" height="120" rx="0" fill="url(#hole)" stroke="#ccd8e8" stroke-width="2"/>
+<text x="105" y="488.0" class="label" xml:space="preserve">未映射区域</text>
+<rect x="85" y="540" width="265" height="120" rx="0" fill="#e9ddf5" stroke="#ccd8e8" stroke-width="2"/>
+<text x="105" y="608.0" class="label" xml:space="preserve">mmap / 共享库</text>
+<rect x="85" y="660" width="265" height="90" rx="0" fill="url(#hole)" stroke="#ccd8e8" stroke-width="2"/>
+<text x="105" y="713.0" class="label" xml:space="preserve">未映射区域</text>
+<rect x="85" y="750" width="265" height="105" rx="0" fill="#dce9ff" stroke="#ccd8e8" stroke-width="2"/>
+<text x="105" y="810.5" class="label" xml:space="preserve">堆 heap</text>
+<rect x="85" y="855" width="265" height="100" rx="0" fill="#dce9ff" stroke="#ccd8e8" stroke-width="2"/>
+<text x="105" y="913.0" class="label" xml:space="preserve">全局 / 静态数据</text>
+<rect x="85" y="955" width="265" height="105" rx="0" fill="#dce9ff" stroke="#ccd8e8" stroke-width="2"/>
+<text x="105" y="1015.5" class="label" xml:space="preserve">程序代码 text</text>
+<path d="M325 355V402" fill="none" stroke="#2e66b6" stroke-width="3" marker-end="url(#blue)"/>
+<path d="M325 828V770" fill="none" stroke="#2e66b6" stroke-width="3" marker-end="url(#blue)"/>
+<text x="85" y="1096" class="small" xml:space="preserve">低地址</text>
+<text x="80" y="1140" class="small" xml:space="preserve">每段由多个虚拟页组成。</text>
+<text x="80" y="1172" class="small" xml:space="preserve">未映射区访问会触发异常。</text>
+<rect x="430" y="185" width="1100" height="420" rx="28" fill="#eaf2ff" stroke="#95b5df" stroke-width="2"/>
+<path d="M470 175V185 M470 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M515 175V185 M515 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M560 175V185 M560 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M605 175V185 M605 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M650 175V185 M650 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M695 175V185 M695 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M740 175V185 M740 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M785 175V185 M785 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M830 175V185 M830 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M875 175V185 M875 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M920 175V185 M920 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M965 175V185 M965 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M1010 175V185 M1010 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M1055 175V185 M1055 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M1100 175V185 M1100 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M1145 175V185 M1145 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M1190 175V185 M1190 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M1235 175V185 M1235 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M1280 175V185 M1280 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M1325 175V185 M1325 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M1370 175V185 M1370 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M1415 175V185 M1415 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M1460 175V185 M1460 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M1505 175V185 M1505 605V615" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M420 220H430 M1530 220H1540" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M420 260H430 M1530 260H1540" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M420 300H430 M1530 300H1540" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M420 340H430 M1530 340H1540" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M420 380H430 M1530 380H1540" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M420 420H430 M1530 420H1540" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M420 460H430 M1530 460H1540" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M420 500H430 M1530 500H1540" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M420 540H430 M1530 540H1540" fill="none" stroke="#95b5df" stroke-width="4"/>
+<path d="M420 580H430 M1530 580H1540" fill="none" stroke="#95b5df" stroke-width="4"/>
+<text x="455" y="226" class="h" xml:space="preserve" style="fill:#265cad">CPU 芯片</text>
+<rect x="455" y="265" width="225" height="245" rx="14" fill="#fff" stroke="#b2c9e8" stroke-width="2"/>
+<text x="475" y="305" class="h" xml:space="preserve">执行单元</text>
+<text x="475" y="350" class="code" xml:space="preserve">load [0x4123]</text>
+<text x="475" y="395" class="small" xml:space="preserve">发出虚拟地址 VA</text>
+<text x="475" y="432" class="small" xml:space="preserve">读取一个字节</text>
+<text x="475" y="476" class="label" xml:space="preserve">① 内存访问请求</text>
+<path d="M375 350H443" fill="none" stroke="#2e66b6" stroke-width="3" marker-end="url(#blue)"/>
+<text x="379" y="328" class="tiny" xml:space="preserve">地址</text>
+<rect x="725" y="255" width="775" height="310" rx="14" fill="#f4f8ff" stroke="#b2c9e8" stroke-width="2"/>
+<text x="745" y="290" class="h" xml:space="preserve">MMU · 地址翻译与权限检查</text>
+<rect x="750" y="320" width="285" height="160" rx="14" fill="#dce9ff" stroke="#99b6df" stroke-width="2"/>
+<text x="770" y="355" class="label" xml:space="preserve">TLB · 翻译缓存</text>
+<text x="770" y="396" class="code" xml:space="preserve">A: VPN 4 → PFN 9</text>
+<text x="770" y="435" class="small" xml:space="preserve">缓存页号映射与权限</text>
+<rect x="1120" y="320" width="350" height="160" rx="14" fill="#fff" stroke="#b2c9e8" stroke-width="2"/>
+<text x="1140" y="355" class="label" xml:space="preserve">硬件页表遍历器</text>
+<text x="1140" y="395" class="small" xml:space="preserve">按当前页表根逐级查表</text>
+<text x="1140" y="435" class="small" xml:space="preserve">x86-64：由硬件完成</text>
+<path d="M680 385H738" fill="none" stroke="#2e66b6" stroke-width="3" marker-end="url(#blue)"/>
+<path d="M1035 385H1108" fill="none" stroke="#2e66b6" stroke-width="3" marker-end="url(#blue)"/>
+<text x="1045" y="365" class="tiny" xml:space="preserve">未命中</text>
+<text x="750" y="531" class="small" xml:space="preserve">TLB 未命中 ≠ 缺页；查到有效页表项仍可正常访问。</text>
+<rect x="430" y="675" width="1100" height="515" rx="20" fill="#e8f6f1" stroke="#b5d9ca" stroke-width="2"/>
+<text x="455" y="717" class="h" xml:space="preserve" style="fill:#207356">物理内存 RAM · 页表与数据都在这里</text>
+<rect x="455" y="750" width="575" height="335" rx="14" fill="#fff" stroke="#b5d9ca" stroke-width="2"/>
+<text x="475" y="786" class="label" xml:space="preserve">进程 A 的页表（多级结构展开示意）</text>
+<rect x="475" y="805" width="535" height="40" rx="0" fill="#edf3ff"/>
+<text x="490" y="832" class="tiny" xml:space="preserve">虚拟页号 VPN    P    物理页框 PFN / 权限</text>
+<rect x="475" y="845" width="535" height="52" rx="0" fill="#dce9ff" stroke="#dce4ed" stroke-width="2"/>
+<text x="500" y="879" class="code" xml:space="preserve">4</text>
+<text x="689" y="879" class="code" xml:space="preserve">1</text>
+<text x="776" y="879" class="code" xml:space="preserve">9</text>
+<text x="865" y="879" class="small" xml:space="preserve">R/W</text>
+<rect x="475" y="897" width="535" height="52" rx="0" fill="#fff" stroke="#dce4ed" stroke-width="2"/>
+<text x="500" y="931" class="code" xml:space="preserve">5</text>
+<text x="689" y="931" class="code" xml:space="preserve">1</text>
+<text x="776" y="931" class="code" xml:space="preserve">2</text>
+<text x="865" y="931" class="small" xml:space="preserve">R/W</text>
+<rect x="475" y="949" width="535" height="52" rx="0" fill="#fff1d8" stroke="#dce4ed" stroke-width="2"/>
+<text x="500" y="983" class="code" xml:space="preserve">6</text>
+<text x="689" y="983" class="code" xml:space="preserve">0</text>
+<text x="776" y="983" class="code" xml:space="preserve">—</text>
+<text x="865" y="983" class="small" xml:space="preserve">待内核判定</text>
+<text x="475" y="1040" class="tiny" xml:space="preserve">P=1：当前有可用的驻留映射（还需权限允许）</text>
+<text x="475" y="1069" class="tiny" xml:space="preserve">P=0：CPU 触发缺页，交给内核判断如何处理</text>
+<rect x="1100" y="750" width="400" height="365" rx="10" fill="#cae8d8" stroke="#91bca4" stroke-width="2"/>
+<text x="1120" y="785" class="label" xml:space="preserve">物理页框 · 每框 4 KiB</text>
+<rect x="1120" y="805" width="360" height="52" rx="4" fill="#fff" stroke="#91bca4" stroke-width="2"/>
+<text x="1135" y="838" class="small" xml:space="preserve">PFN 0   内核 / 其他页</text>
+<rect x="1120" y="867" width="360" height="52" rx="4" fill="#dce9ff" stroke="#91bca4" stroke-width="2"/>
+<text x="1135" y="900" class="small" xml:space="preserve">PFN 2   A 的虚拟页 5</text>
+<rect x="1120" y="929" width="360" height="52" rx="4" fill="#fff1d8" stroke="#91bca4" stroke-width="2"/>
+<text x="1135" y="962" class="small" xml:space="preserve">PFN 7   空闲页框</text>
+<rect x="1120" y="991" width="360" height="52" rx="4" fill="#bde6d5" stroke="#91bca4" stroke-width="2"/>
+<text x="1135" y="1024" class="small" xml:space="preserve">PFN 9   A 的虚拟页 4</text>
+<rect x="1120" y="1115" width="13" height="17" rx="0" fill="#d5b15d"/>
+<rect x="1142" y="1115" width="13" height="17" rx="0" fill="#d5b15d"/>
+<rect x="1164" y="1115" width="13" height="17" rx="0" fill="#d5b15d"/>
+<rect x="1186" y="1115" width="13" height="17" rx="0" fill="#d5b15d"/>
+<rect x="1208" y="1115" width="13" height="17" rx="0" fill="#d5b15d"/>
+<rect x="1230" y="1115" width="13" height="17" rx="0" fill="#d5b15d"/>
+<rect x="1252" y="1115" width="13" height="17" rx="0" fill="#d5b15d"/>
+<rect x="1274" y="1115" width="13" height="17" rx="0" fill="#d5b15d"/>
+<rect x="1296" y="1115" width="13" height="17" rx="0" fill="#d5b15d"/>
+<rect x="1318" y="1115" width="13" height="17" rx="0" fill="#d5b15d"/>
+<rect x="1340" y="1115" width="13" height="17" rx="0" fill="#d5b15d"/>
+<rect x="1362" y="1115" width="13" height="17" rx="0" fill="#d5b15d"/>
+<rect x="1384" y="1115" width="13" height="17" rx="0" fill="#d5b15d"/>
+<rect x="1406" y="1115" width="13" height="17" rx="0" fill="#d5b15d"/>
+<rect x="1428" y="1115" width="13" height="17" rx="0" fill="#d5b15d"/>
+<rect x="1450" y="1115" width="13" height="17" rx="0" fill="#d5b15d"/>
+<rect x="1472" y="1115" width="13" height="17" rx="0" fill="#d5b15d"/>
+<path d="M1290 480V641H415V790H443" fill="none" stroke="#2e66b6" stroke-width="3" marker-end="url(#blue)"/>
+<text x="910" y="634" class="small" xml:space="preserve" style="fill:#265cad">② TLB 未命中：读取内存中的页表</text>
+<path d="M750 450H705V580H1065V1017H1108" fill="none" stroke="#208365" stroke-width="3" marker-end="url(#green)"/>
+<text x="1080" y="580" class="small" xml:space="preserve" style="fill:#207356">③ 命中后得到物理地址 PA</text>
+
+<text x="1130" y="666" class="tiny" xml:space="preserve" style="fill:#207356">查表成功：映射可填入 TLB</text>
+<text x="1110" y="1165" class="small" xml:space="preserve" style="fill:#207356">PFN 9 内偏移 0x123 处：数据字节 0x41</text>
+<path d="M1430 992V1041" fill="none" stroke="#207356" stroke-width="4"/>
+<text x="1440" y="1029" class="label" xml:space="preserve" style="fill:#207356">•</text>
+<rect x="430" y="1250" width="610" height="185" rx="14" fill="#fff1d8" stroke="#e7c591" stroke-width="2"/>
+<text x="455" y="1290" class="h" xml:space="preserve" style="fill:#915b12">操作系统内核 · 缺页处理程序</text>
+<text x="455" y="1330" class="small" xml:space="preserve">合法访问：分配页框 / 建立映射 / 必要时读盘</text>
+<text x="455" y="1367" class="small" xml:space="preserve">修复页表后，重新执行引发缺页的指令。</text>
+<text x="455" y="1404" class="small" xml:space="preserve">非法地址或权限错误：可能向进程发送 SIGSEGV。</text>
+<path d="M740 1085V1238" fill="none" stroke="#bf7125" stroke-width="3" marker-end="url(#orange)"/>
+<text x="760" y="1223" class="small" xml:space="preserve" style="fill:#a56526">④ 不驻留或权限不允许 → 缺页异常</text>
+<path d="M1130 1285V1390C1130 1435 1510 1435 1510 1390V1285Z" fill="#e8edf4" stroke="#96a8bf" stroke-width="2"/><ellipse cx="1320" cy="1285" rx="190" ry="30" fill="#f8fafc" stroke="#96a8bf" stroke-width="2"/>
+<text x="1180" y="1343" class="label" xml:space="preserve">SSD / HDD · 后备存储</text>
+<text x="1185" y="1380" class="small" xml:space="preserve">文件页   /   swap（若启用）</text>
+<path d="M1040 1330H1118" fill="none" stroke="#bf7125" stroke-width="3" marker-end="url(#orange)"/>
+<path d="M1320 1252V1205H1080V1130" fill="none" stroke="#bf7125" stroke-width="3" marker-end="url(#orange)" stroke-dasharray="8 6"/>
+<text x="1095" y="1233" class="tiny" xml:space="preserve" style="fill:#a56526">需要时读入 RAM</text>
+<path d="M455 1250H402V545H565V521" fill="none" stroke="#bf7125" stroke-width="3" marker-end="url(#orange)" stroke-dasharray="8 6"/>
+<text x="60" y="1286" class="small" xml:space="preserve" style="fill:#265cad">蓝色：地址翻译 / 查表</text>
+<text x="60" y="1326" class="small" xml:space="preserve" style="fill:#207356">绿色：物理地址访问</text>
+<text x="60" y="1366" class="small" xml:space="preserve" style="fill:#a56526">橙色：缺页处理路径</text>
+<text x="60" y="1410" class="small" xml:space="preserve">磁盘不是每次访问的必经之路。</text>
+<path d="M60 1470H1530" fill="none" stroke="#c5d3e5" stroke-width="2"/>
+<text x="60" y="1518" class="h" xml:space="preserve">同一个虚拟地址，为什么能在不同进程里指向不同数据？</text>
+<text x="75" y="1562" class="label" xml:space="preserve">进程 A · 自己的页表</text>
+<text x="665" y="1562" class="label" xml:space="preserve">物理内存（同一台机器）</text>
+<text x="1220" y="1562" class="label" xml:space="preserve">进程 B · 自己的页表</text>
+<rect x="75" y="1590" width="300" height="65" rx="14" fill="#dce9ff" stroke="#b8c9df" stroke-width="2"/>
+<text x="100" y="1630" class="code" xml:space="preserve">VA 0x4123</text>
+<rect x="75" y="1695" width="300" height="65" rx="14" fill="#e9ddf5" stroke="#b8c9df" stroke-width="2"/>
+<text x="100" y="1735" class="label" xml:space="preserve">共享文件页</text>
+<rect x="1220" y="1590" width="300" height="65" rx="14" fill="#dce9ff" stroke="#b8c9df" stroke-width="2"/>
+<text x="1245" y="1630" class="code" xml:space="preserve">VA 0x4123</text>
+<rect x="1220" y="1695" width="300" height="65" rx="14" fill="#e9ddf5" stroke="#b8c9df" stroke-width="2"/>
+<text x="1245" y="1735" class="label" xml:space="preserve">共享文件页</text>
+<rect x="645" y="1580" width="390" height="55" rx="4" fill="#dce9ff" stroke="#b8c9df" stroke-width="2"/>
+<text x="665" y="1615" class="small" xml:space="preserve">PFN 9：A 的私有数据</text>
+<rect x="645" y="1655" width="390" height="55" rx="4" fill="#dce9ff" stroke="#b8c9df" stroke-width="2"/>
+<text x="665" y="1690" class="small" xml:space="preserve">PFN 12：B 的私有数据</text>
+<rect x="645" y="1730" width="390" height="55" rx="4" fill="#e9ddf5" stroke="#b8c9df" stroke-width="2"/>
+<text x="665" y="1765" class="small" xml:space="preserve">PFN 20：共享的文件缓存页</text>
+<path d="M375 1620H633" fill="none" stroke="#2e66b6" stroke-width="3" marker-end="url(#blue)"/>
+<path d="M1220 1620H1140V1682H1047" fill="none" stroke="#2e66b6" stroke-width="3" marker-end="url(#blue)"/>
+<path d="M375 1727H500V1757H633" fill="none" stroke="#8555ae" stroke-width="3" marker-end="url(#purple)"/>
+<path d="M1220 1727H1130V1757H1047" fill="none" stroke="#8555ae" stroke-width="3" marker-end="url(#purple)"/>
+<text x="405" y="1602" class="tiny" xml:space="preserve">A：4 → 9</text>
+<text x="1050" y="1589" class="tiny" xml:space="preserve">B：4 → 12</text>
+<text x="60" y="1830" class="small" xml:space="preserve">地址隔离由页表与权限实现；不同进程也可把某些虚拟页映射到同一物理页，实现共享。</text>
+<rect x="60" y="1870" width="1470" height="190" rx="14" fill="#fff" stroke="#cbdcf8" stroke-width="2"/>
+<text x="85" y="1908" class="h" xml:space="preserve">把主图的地址算一遍 · 页大小 4096 = 2¹² 字节</text>
+<rect x="85" y="1932" width="300" height="48" rx="4" fill="#dce9ff"/>
+<text x="100" y="1964" class="code" xml:space="preserve">VPN = 4</text>
+<rect x="385" y="1932" width="275" height="48" rx="4" fill="#fff1d8"/>
+<text x="400" y="1964" class="code" xml:space="preserve">offset = 0x123</text>
+<path d="M675 1956H805" fill="none" stroke="#2e66b6" stroke-width="3" marker-end="url(#blue)"/>
+<text x="690" y="1938" class="tiny" xml:space="preserve">页表：4 → 9</text>
+<rect x="820" y="1932" width="320" height="48" rx="4" fill="#bde6d5"/>
+<text x="835" y="1964" class="code" xml:space="preserve">PFN = 9</text>
+<rect x="1140" y="1932" width="355" height="48" rx="4" fill="#fff1d8"/>
+<text x="1155" y="1964" class="code" xml:space="preserve">offset = 0x123</text>
+<text x="85" y="2027" class="code" xml:space="preserve">VA 0x4123 = 4 × 0x1000 + 0x123</text>
+<text x="820" y="2027" class="code" xml:space="preserve">PA 0x9123 = 9 × 0x1000 + 0x123</text>
+<text x="60" y="2101" class="small" xml:space="preserve">页内偏移保持不变。虚拟内存提供地址空间与隔离，并不等于“拿磁盘当内存”；缺页也不一定要读磁盘。</text>
+</svg>
