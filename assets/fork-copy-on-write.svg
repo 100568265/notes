@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1740" viewBox="0 0 1440 1740" role="img" aria-labelledby="title desc"><title id="title">fork 的性能：写时复制 COW</title><desc id="desc">fork 后父子有独立页表，但暂时映射同一组物理页。写入共享的私有页时通过写保护缺页，复制该页并更新写入方页表，然后重试。比较创建和写入的成本。</desc><defs>
+<marker id="blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#2e66b6"/></marker>
+<marker id="green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#208365"/></marker>
+<marker id="orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#bd7127"/></marker>
+<marker id="gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#98a8b9"/></marker>
+</defs><rect width="1440" height="1740" fill="#f5f7fb"/><style>text{font-family:"Noto Sans SC","Microsoft YaHei","PingFang SC",sans-serif;fill:#172c48}.title{font-size:40px;font-weight:700}.h{font-size:28px;font-weight:700}.b{font-size:23px}.small{font-size:20px;fill:#52647b}.tiny{font-size:18px;fill:#52647b}.code{font-family:Consolas,"Noto Sans SC",monospace;font-size:23px}.label{font-size:23px;font-weight:700}</style>
+<text x="55" y="73" class="title">fork 的性能：先共享，真正写入时才复制</text>
+<text x="55" y="115" class="small">以 Linux、已驻留的私有匿名页为例；假设页大小 4 KiB，忽略大页和特殊映射。</text>
+<text x="55" y="178" class="h">① 刚 fork 完：两份页表，暂时共用同一批物理数据页</text>
+<rect x="60" y="215" width="310" height="380" rx="14" fill="#eaf2ff" stroke="#b2c9e8" stroke-width="2"/>
+<text x="80" y="256" class="label">父进程 · 自己的页表</text>
+<rect x="80" y="290" width="270" height="62" rx="5" fill="#fff" stroke="#b2c9e8" stroke-width="2"/>
+<text x="95" y="317" class="small">虚拟页 4 → 页框 9</text>
+<text x="95" y="342" class="tiny">只读保护（用于 COW）</text>
+<rect x="80" y="372" width="270" height="62" rx="5" fill="#fff" stroke="#b2c9e8" stroke-width="2"/>
+<text x="95" y="399" class="small">虚拟页 5 → 页框 12</text>
+<text x="95" y="424" class="tiny">只读保护（用于 COW）</text>
+<rect x="80" y="454" width="270" height="62" rx="5" fill="#fff" stroke="#b2c9e8" stroke-width="2"/>
+<text x="95" y="481" class="small">虚拟页 6 → 页框 15</text>
+<text x="95" y="506" class="tiny">只读保护（用于 COW）</text>
+<text x="80" y="575" class="small">虚拟地址空间彼此独立。</text>
+<rect x="1070" y="215" width="310" height="380" rx="14" fill="#e8f6f1" stroke="#b5d9ca" stroke-width="2"/>
+<text x="1090" y="256" class="label">子进程 · 自己的页表</text>
+<rect x="1090" y="290" width="270" height="62" rx="5" fill="#fff" stroke="#b5d9ca" stroke-width="2"/>
+<text x="1105" y="317" class="small">虚拟页 4 → 页框 9</text>
+<text x="1105" y="342" class="tiny">只读保护（用于 COW）</text>
+<rect x="1090" y="372" width="270" height="62" rx="5" fill="#fff" stroke="#b5d9ca" stroke-width="2"/>
+<text x="1105" y="399" class="small">虚拟页 5 → 页框 12</text>
+<text x="1105" y="424" class="tiny">只读保护（用于 COW）</text>
+<rect x="1090" y="454" width="270" height="62" rx="5" fill="#fff" stroke="#b5d9ca" stroke-width="2"/>
+<text x="1105" y="481" class="small">虚拟页 6 → 页框 15</text>
+<text x="1105" y="506" class="tiny">只读保护（用于 COW）</text>
+<text x="1090" y="575" class="small">虚拟地址空间彼此独立。</text>
+<rect x="520" y="215" width="400" height="380" rx="14" fill="#f0f4f9" stroke="#bdcbdc" stroke-width="2"/>
+<text x="540" y="256" class="label">物理内存 RAM · 只有一份数据</text>
+<rect x="550" y="290" width="340" height="62" rx="5" fill="#fff" stroke="#bdcbdc" stroke-width="2"/>
+<text x="570" y="328" class="code">页框 9：4 KiB 数据</text>
+<path d="M370 321H538" fill="none" stroke="#2e66b6" stroke-width="3" marker-end="url(#blue)"/>
+<path d="M1070 321H902" fill="none" stroke="#208365" stroke-width="3" marker-end="url(#green)"/>
+<rect x="550" y="372" width="340" height="62" rx="5" fill="#fff" stroke="#bdcbdc" stroke-width="2"/>
+<text x="570" y="410" class="code">页框 12：4 KiB 数据</text>
+<path d="M370 403H538" fill="none" stroke="#2e66b6" stroke-width="3" marker-end="url(#blue)"/>
+<path d="M1070 403H902" fill="none" stroke="#208365" stroke-width="3" marker-end="url(#green)"/>
+<rect x="550" y="454" width="340" height="62" rx="5" fill="#fff" stroke="#bdcbdc" stroke-width="2"/>
+<text x="570" y="492" class="code">页框 15：4 KiB 数据</text>
+<path d="M370 485H538" fill="none" stroke="#2e66b6" stroke-width="3" marker-end="url(#blue)"/>
+<path d="M1070 485H902" fill="none" stroke="#208365" stroke-width="3" marker-end="url(#green)"/>
+<text x="545" y="575" class="small">父子读取同一页，不需要复制。</text>
+<text x="55" y="641" class="small">这些页原本允许程序写入；内核暂时撤销可写权限，用来捕获“第一次写”。</text>
+<rect x="55" y="675" width="1330" height="98" rx="14" fill="#fff1d8" stroke="#e7c591" stroke-width="2"/>
+<text x="80" y="714" class="h" style="fill:#915b12">② 子进程修改虚拟页 4 中的一个字节</text>
+<text x="80" y="750" class="b">CPU 写保护缺页 → 内核分配新页并复制旧页 → 修改子进程页表 → 重试写入</text>
+<rect x="520" y="810" width="400" height="440" rx="14" fill="#f0f4f9" stroke="#bdcbdc" stroke-width="2"/>
+<text x="540" y="852" class="h">物理内存 RAM</text>
+<rect x="550" y="885" width="340" height="125" rx="14" fill="#dce9ff" stroke="#b2c9e8" stroke-width="2"/>
+<text x="570" y="925" class="label">原页框 9 · 内容不变</text>
+<text x="570" y="975" class="code">a  b  c  …</text>
+<rect x="550" y="1090" width="340" height="125" rx="14" fill="#cceadd" stroke="#9bcab4" stroke-width="2"/>
+<text x="570" y="1130" class="label">新页框 24 · 子进程修改</text>
+<text x="570" y="1180" class="code" style="fill:#208365">X  b  c  …</text>
+<path d="M720 1010V1078" fill="none" stroke="#bd7127" stroke-width="3" marker-end="url(#orange)"/>
+<text x="750" y="1055" class="tiny" style="fill:#a56526">复制一整页，再改一个字节</text>
+<rect x="60" y="885" width="310" height="125" rx="14" fill="#eaf2ff" stroke="#b2c9e8" stroke-width="2"/>
+<text x="80" y="925" class="label">父进程页表</text>
+<text x="80" y="975" class="code">虚拟页 4 → 页框 9</text>
+<path d="M370 950H538" fill="none" stroke="#2e66b6" stroke-width="3" marker-end="url(#blue)"/>
+<rect x="1070" y="1090" width="310" height="125" rx="14" fill="#e8f6f1" stroke="#b5d9ca" stroke-width="2"/>
+<text x="1090" y="1130" class="label">子进程页表</text>
+<text x="1090" y="1180" class="code">虚拟页 4 → 页框 24</text>
+<path d="M1070 1155H902" fill="none" stroke="#208365" stroke-width="3" marker-end="url(#green)"/>
+<text x="1080" y="930" class="small">原先指向页框 9，</text>
+<text x="1080" y="967" class="small">现在指向新页框 24。</text>
+<text x="1080" y="1004" class="small">新页可写，写入重试成功。</text>
+<text x="65" y="1080" class="small">父进程继续看到原内容。</text>
+<text x="65" y="1120" class="small">其余未写入的物理页，</text>
+<text x="65" y="1160" class="small">父子仍可继续共享。</text>
+<text x="55" y="1300" class="h">性能省在哪里？成本又在哪里？</text>
+<rect x="55" y="1325" width="1330" height="54" rx="10" fill="#edf3ff"/>
+<text x="75" y="1360" class="label">fork 当下</text>
+<text x="330" y="1360" class="small">创建任务、复制 / 建立页表等元数据；普通用户数据页不立即整批复制。</text>
+<rect x="55" y="1388" width="1330" height="54" rx="10" fill="#fff1d8"/>
+<text x="75" y="1423" class="label">第一次写共享页</text>
+<text x="330" y="1423" class="small">付出缺页处理、分配新页、复制该页、更新映射等成本。</text>
+<rect x="55" y="1451" width="1330" height="54" rx="10" fill="#e8f6f1"/>
+<text x="75" y="1486" class="label">新私有页后续写</text>
+<text x="330" y="1486" class="small">通常直接写入，不会每写一个字节就再次复制整页。</text>
+<rect x="55" y="1540" width="1330" height="98" rx="14" fill="#fff" stroke="#cbdcf8" stroke-width="2"/>
+<text x="80" y="1578" class="label">例：已有 1 GiB 数据，fork 后子进程只改了其中 10 MiB 的不同页。</text>
+<text x="80" y="1617" class="small">理想情况下，数据页合计约 1 GiB + 10 MiB，而不是立刻变成 2 GiB；另有页表与管理开销。</text>
+<text x="55" y="1680" class="small">父进程写入也可能触发 COW；若旧页已不再共享，内核有时只需恢复可写权限，无须真的复制。</text>
+<text x="55" y="1716" class="small">结论：少写或很快 exec，通常更能受益；大量改写则会逐步付出复制成本。fork 不是零开销。</text>
+</svg>

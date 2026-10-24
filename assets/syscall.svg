@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1220" viewBox="0 0 1440 1220" role="img" aria-labelledby="title"><title id="title">系统调用与软件中断：观其大略</title><defs>
+<marker id="blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#2e66b6"/></marker>
+<marker id="orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#bd7127"/></marker>
+<marker id="green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#208365"/></marker>
+</defs><rect width="1440" height="1220" fill="#f5f7fb"/><style>text{font-family:"Noto Sans SC","Microsoft YaHei","PingFang SC",sans-serif;fill:#172c48}.title{font-size:39px;font-weight:700}.h{font-size:28px;font-weight:700}.b{font-size:24px}.small{font-size:21px;fill:#52647b}.label{font-size:24px;font-weight:700}.code{font-family:Consolas,"Noto Sans SC",monospace;font-size:25px}</style>
+<text x="55" y="72" class="title">系统调用与中断：CPU 怎么进入内核，再回来？</text>
+<text x="55" y="116" class="small">用经典 32 位 x86 的 int 0x80 软件中断路径讲原理，省略寄存器细节。</text>
+<rect x="60" y="180" width="505" height="685" rx="25" fill="#eaf2ff" stroke="#95b5df" stroke-width="2"/>
+<path d="M90 169V180 M90 865V876" stroke="#95b5df" stroke-width="4"/>
+<path d="M125 169V180 M125 865V876" stroke="#95b5df" stroke-width="4"/>
+<path d="M160 169V180 M160 865V876" stroke="#95b5df" stroke-width="4"/>
+<path d="M195 169V180 M195 865V876" stroke="#95b5df" stroke-width="4"/>
+<path d="M230 169V180 M230 865V876" stroke="#95b5df" stroke-width="4"/>
+<path d="M265 169V180 M265 865V876" stroke="#95b5df" stroke-width="4"/>
+<path d="M300 169V180 M300 865V876" stroke="#95b5df" stroke-width="4"/>
+<path d="M335 169V180 M335 865V876" stroke="#95b5df" stroke-width="4"/>
+<path d="M370 169V180 M370 865V876" stroke="#95b5df" stroke-width="4"/>
+<path d="M405 169V180 M405 865V876" stroke="#95b5df" stroke-width="4"/>
+<path d="M440 169V180 M440 865V876" stroke="#95b5df" stroke-width="4"/>
+<path d="M475 169V180 M475 865V876" stroke="#95b5df" stroke-width="4"/>
+<path d="M510 169V180 M510 865V876" stroke="#95b5df" stroke-width="4"/>
+<path d="M545 169V180 M545 865V876" stroke="#95b5df" stroke-width="4"/>
+<path d="M49 215H60 M565 215H576" stroke="#95b5df" stroke-width="4"/>
+<path d="M49 250H60 M565 250H576" stroke="#95b5df" stroke-width="4"/>
+<path d="M49 285H60 M565 285H576" stroke="#95b5df" stroke-width="4"/>
+<path d="M49 320H60 M565 320H576" stroke="#95b5df" stroke-width="4"/>
+<path d="M49 355H60 M565 355H576" stroke="#95b5df" stroke-width="4"/>
+<path d="M49 390H60 M565 390H576" stroke="#95b5df" stroke-width="4"/>
+<path d="M49 425H60 M565 425H576" stroke="#95b5df" stroke-width="4"/>
+<path d="M49 460H60 M565 460H576" stroke="#95b5df" stroke-width="4"/>
+<path d="M49 495H60 M565 495H576" stroke="#95b5df" stroke-width="4"/>
+<path d="M49 530H60 M565 530H576" stroke="#95b5df" stroke-width="4"/>
+<path d="M49 565H60 M565 565H576" stroke="#95b5df" stroke-width="4"/>
+<path d="M49 600H60 M565 600H576" stroke="#95b5df" stroke-width="4"/>
+<path d="M49 635H60 M565 635H576" stroke="#95b5df" stroke-width="4"/>
+<path d="M49 670H60 M565 670H576" stroke="#95b5df" stroke-width="4"/>
+<path d="M49 705H60 M565 705H576" stroke="#95b5df" stroke-width="4"/>
+<path d="M49 740H60 M565 740H576" stroke="#95b5df" stroke-width="4"/>
+<path d="M49 775H60 M565 775H576" stroke="#95b5df" stroke-width="4"/>
+<path d="M49 810H60 M565 810H576" stroke="#95b5df" stroke-width="4"/>
+<path d="M49 845H60 M565 845H576" stroke="#95b5df" stroke-width="4"/>
+<text x="85" y="223" class="h" style="fill:#265cad">CPU · 同一个核心</text>
+<rect x="90" y="260" width="445" height="115" rx="15" fill="#fff" stroke="#b2c9e8" stroke-width="2"/>
+<text x="110" y="303" class="label">① 用户态：执行你的程序</text>
+<text x="110" y="345" class="small">想写文件，但不能直接操纵内核。</text>
+<rect x="90" y="445" width="445" height="115" rx="15" fill="#fff1d8" stroke="#e7c591" stroke-width="2"/>
+<text x="110" y="487" class="label" style="fill:#915b12">② 执行 int 0x80</text>
+<text x="110" y="529" class="small">主动触发软件中断，请求系统服务。</text>
+<path d="M305 375V433" fill="none" stroke="#bd7127" stroke-width="3" marker-end="url(#orange)"/>
+<rect x="90" y="685" width="445" height="115" rx="15" fill="#e8f6f1" stroke="#b5d9ca" stroke-width="2"/>
+<text x="110" y="726" class="label">④ 内核态：执行内核处理代码</text>
+<text x="110" y="768" class="small">检查请求 → 分派系统调用 → 处理</text>
+<rect x="730" y="180" width="650" height="685" rx="20" fill="#e8f6f1" stroke="#b5d9ca" stroke-width="2"/>
+<text x="755" y="223" class="h" style="fill:#207356">物理内存 RAM</text>
+<rect x="760" y="260" width="590" height="115" rx="15" fill="#fff" stroke="#b5d9ca" stroke-width="2"/>
+<text x="780" y="303" class="label">用户程序代码</text>
+<text x="780" y="345" class="code">… → 准备调用号与参数 → int 0x80 → …</text>
+<path d="M760 315H547" fill="none" stroke="#2e66b6" stroke-width="3" marker-end="url(#blue)"/>
+<text x="595" y="298" class="small" style="fill:#265cad">取指执行</text>
+<rect x="760" y="420" width="590" height="155" rx="15" fill="#fff1d8" stroke="#e7c591" stroke-width="2"/>
+<text x="780" y="462" class="label">IDT · 中断描述符表</text>
+<rect x="780" y="480" width="550" height="40" rx="3" fill="#fff" stroke="#e7c591" stroke-width="2"/>
+<text x="800" y="509" class="code">编号 0x80  →  内核系统调用入口</text>
+<text x="780" y="554" class="small">入口由操作系统预先配置，不能任意跳入。</text>
+<path d="M535 498H748" fill="none" stroke="#bd7127" stroke-width="3" marker-end="url(#orange)"/>
+<text x="585" y="478" class="small" style="fill:#a56526">查找入口</text>
+<path d="M760 550H650V635H305V673" fill="none" stroke="#bd7127" stroke-width="3" marker-end="url(#orange)"/>
+<text x="590" y="620" class="small" style="fill:#a56526">③ 保存返回现场、换内核栈、进入内核态</text>
+<rect x="760" y="685" width="315" height="115" rx="15" fill="#fff" stroke="#b5d9ca" stroke-width="2"/>
+<text x="780" y="726" class="label">内核处理代码</text>
+<text x="780" y="768" class="small">系统调用入口 / 处理函数</text>
+<rect x="1090" y="685" width="260" height="115" rx="15" fill="#fff" stroke="#b5d9ca" stroke-width="2"/>
+<text x="1110" y="726" class="label">内核栈</text>
+<text x="1110" y="768" class="small">返回位置与保存的状态</text>
+<path d="M760 743H547" fill="none" stroke="#2e66b6" stroke-width="3" marker-end="url(#blue)"/>
+<text x="588" y="725" class="small" style="fill:#265cad">取指执行</text>
+<path d="M90 765H23V315H78" fill="none" stroke="#208365" stroke-width="3" marker-end="url(#green)"/>
+<text x="85" y="843" class="small" style="fill:#207356">⑤ 恢复现场 → 中断返回 iret → 继续用户程序</text>
+<rect x="55" y="915" width="1330" height="92" rx="15" fill="#fff1d8" stroke="#e7c591" stroke-width="2"/>
+<text x="80" y="952" class="h" style="fill:#915b12">软件中断的作用：通过受控入口，把 CPU 的执行交给内核。</text>
+<text x="80" y="987" class="small">这里切的是 CPU 执行权限和执行位置，不一定切换进程，也不会自动获得 root 权限。</text>
+<text x="55" y="1060" class="h">别混淆两种“中断”</text>
+<text x="55" y="1104" class="b">软件中断：程序执行指令主动触发。硬件中断：定时器、网卡等设备发出通知。</text>
+<text x="55" y="1150" class="small">现代 x86-64 系统调用通常用 syscall 专用指令，走专用入口，不经过上图的 IDT 0x80。</text>
+<text x="55" y="1191" class="small">两者都有受控进入内核并返回的机制；上图只是用经典软件中断帮助理解，不代表所有系统调用都走中断表。</text>
+</svg>

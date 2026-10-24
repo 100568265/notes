@@ -1942,31 +1942,389 @@ Bash
 
 
 
+#### 系统调用的原理
+
+![syscall](./assets/syscall.svg)
+
+
+
+#### system和fork
+
+
+
+在代码中启动多个进程：
+
+`system - execute a shell command`
+
+`#include <stdlib.h>`
+
+`int system(const char *command);`
+
+```c
+#include <stdlib.h>
+int main(){
+	system("./sleep");
+}
+```
+
+**system的缺点：**这个代码运行后会创建3个进程，首先是本体进程，另一个是shell，最后才是shell拉起的sleep进程。
+
+因此，用另一个系统调用会更好：
+
+
+
+`fork - create a child process`
+
+`#include <unistd.h>`
+
+`pid_t fork(void);`
+
+父进程的`fork()`返回子进程的pid，子进程的`fork()`返回0
+
+```c
+#include <unistd.h>
+#include <stdio.h>
+
+int main(){
+    pid_t pid;
+    pid = fork();
+    if(pid == 0){
+        printf("I am child, pid = %d, ppid = %d\n",getpid(),getppid());
+    } else{
+        printf("I am parent, pid = %d, ppid = %d\n",getpid(),getppid());
+        sleep(1);
+    }
+}
+```
+
+**fork的底层原理**
+
+1. fork会拷贝一份task_struct
+2. 子进程修改一些必要数据(1-2步骤之间，不可抢占)
+3. 加入到就绪队列
 
 
 
 
 
+**fork的性能 - 写时复制**
+
+![fork-copy-on-write](./assets/fork-copy-on-write.svg)
+
+
+
+#### exec和wait
+
+`execl, execlp, execle, execv, execvp, execvpe - execute a file`
+
+`#include <unistd.h>`
+
+`int execl(const char *path, const char *arg, ...
+                       /*, (char *) NULL */);`
+
+`int execv(const char *path, char *const argv[]);`
+
+简单来说，exec的作用就是用一个新的程序替换当前正在运行的进程。
+
+你可以把它形象地理解为"夺舍"：
+
+1. 壳子保留：进程的PID，操作系统分配的资源，打开的文件描述符等外部身份保持不变。
+2. 内存重写：原本进程里的C++代码，全局变量，堆栈全部被清空，然后把新程序的代码载入进来，从新程序的`main`函数开始执行。
+
+
+
+**Q1：为什么fork和exec总是绑定在一起？**
+
+因为Linux想要运行一个全新的程序，必须靠这套先分身，再变身的经典组合拳：
+
+1. fork负责分身：复制出一个一模一样的子进程。
+2. exec负责变身：在子进程里调用exec，把它变成你想运行的目标程序。
+
+
+
+**Q2：如果不fork，直接exec会发生什么？**
+
+你的主程序会立刻被销毁。
+
+
+
+**代码样例：**
+
+假设你在用C++写一个视频转码服务，需要调用系统里现成的`ffmpeg`命令行去切片HLS：
+
+```cpp
+#include <unistd.h>
+#include <sys/wait.h>
+#include <iostream>
+
+void convert_video(){
+  pid_t pid = fork();
+  if(pid == 0){
+    // 子进程内部
+    execl("/usr/bin/ffmpeg","ffmpeg","-i","input.mp4","output.m3u8",NULL);
+    
+    // 如果execl执行成功，下面2行代码永远不会被触发
+    std::cerr << "exec 失败了！" << std::endl;
+    _exit(1);
+  } else{
+    // 父进程
+    int status;
+    waitpid(pid,&status,0); // 阻塞等待ffmpeg执行完毕
+    std::cout << "视频转码完成" << std::endl;
+  }
+}
+```
+
+
+
+进程的退出：其资源由其父进程回收。
+
+`wait, waitpid, waitid - wait for process to change state`
+
+`#include <sys/wait.h>`
+
+`pid_t wait(int *wstatus);`
+
+`pid_t waitpid(pid_t pid, int *wstatus, int options);`
+
+子进程未终止，父进程已终止：孤儿进程
+
+子进程终止，父进程一直不调用wait：僵尸进程
 
 
 
 
 
+#### 进程的终止
+
+**正常退出**
+
+`exit`
+
+`#include <stdlib.h>`
+`void exit(int status);`
+
+
+
+`_exit`
+
+`#include <unistd.h>`
+`void _exit(int status);`
+
+下划线版本退出前不会清空标准输出。
 
 
 
 
 
+**主动异常终止**
+
+`void abort();`
+
+
+
+**另一个进程/硬件发信号终止**
 
 
 
 
 
+#### 守护进程
+
+**定义：**即使是`会话`关闭，进程依然可以持续运行。
+
+以d结尾，sshd就是一个守护进程。
 
 
 
+**进程组 - process group：**一组相关进程的集合，同一个组里共享一个**进程组ID**(PGID)。
+
+设计它最核心的目的：方便批量发信号，比如终端一次性杀掉多个进程。
+
+**进程组首进程 - process group leader：**这个进程的PID == PGID，它就是这个组的组长。
+
+**会话 - session**：会话是进程组的集合。
 
 
+
+**终端：**会话可以连接一个终端，如果终端关闭，所有会话内进程收到一个断开连接信号。
+
+**注意：**即使是后台程序(带&后缀启动的)，会话关闭时，也会收到`SIGHUP`并跟着终端一起死亡。
+
+
+
+**Q1：前台进程和后台进程的区别是什么？**
+
+前台进程：占用终端的输入输出，你能看到日志，且按`Ctrl+C`能直接杀掉它
+
+后台进程(&)：终端让出控制权，但它依然属于当前这个会话，绑在同一个控制终端上
+
+
+
+**这也就是为什么必须有`nohup`的原因**
+
+正因为后台进程在终端关闭时也会死，我们部署应用时才需要专门的机制来防挂：
+
+```shell
+nohup ./my_server &
+```
+
+但是它不具备任何监控和拉起功能，如果服务挂了，就是真的挂了。因此，我们还需要守护进程的机制。
+
+
+
+**添加守护进程的方式**
+
+**方案一：Linux系统服务控制 -- systemd**
+
+```ini
+[Unit]
+Description=My Audio/Video Service
+
+[Service]
+ExecStart=/path/to/your/my_server
+Restart=always           # 重点：只要挂了就自动重启
+RestartSec=3             # 挂掉后等待 3 秒再拉起
+
+[Install]
+WantedBy=multi-user.target
+```
+
+
+
+**方案二：简单Shell死循环脚本(临时，轻量场景)**
+
+```bash
+#!/bin/bash
+while true; do
+    echo "启动服务..."
+    ./my_server
+    echo "服务崩溃退出，代码为 $?，3秒后自动拉起..."
+    sleep 3
+done
+```
+
+启动时直接后台运行这个脚本：`nohup ./run.sh &`。
+
+
+
+**方案三：Watchdog架构代码**
+
+```c
+#include <unistd.h>
+#include <sys/wait.h>
+#include <iostream>
+
+void do_real_work() {
+    // 业务逻辑
+}
+
+int main() {
+    while (true) {
+        pid_t pid = fork();
+
+        if (pid == 0) {
+            // 子进程：负责跑核心业务逻辑
+            do_real_work();
+            return 0; 
+        } else if (pid > 0) {
+            // 父进程（Watchdog 守护进程）：阻塞等待子进程退出
+            int status;
+            waitpid(pid, &status, 0); 
+            
+            // 如果走到这里，说明子进程挂掉了（比如 Crash 了）
+            std::cout << "警告：工作子进程挂掉，准备重启..." << std::endl;
+            sleep(1); // 防止疯狂连续崩溃占用 100% CPU
+        }
+    }
+    return 0;
+}
+```
+
+
+
+#### 进程间通信 - IPC
+
+打破进程之间的隔离，让进程间可以共享数据。
+
+- 管道
+- 共享内存
+- 信号量
+- 消息队列
+- 信号
+
+
+
+有名管道：在文件系统存在一个管道文件
+
+匿名管道：文件系统中不存在，只用于父子进程间
+
+
+
+##### 管道
+
+`popen, pclose - pipe stream to or from a process`
+
+`#include <stdio.h>`
+
+`FILE *popen(const char *command, const char *type);`
+
+`int pclose(FILE *stream);`
+
+父子进程之间通过**管道**连在一起，管道的两端都是文件流。
+
+**`command`**：需要执行的 Shell 命令字符串（支持管道 `|`、重定向 `< >` 等 Shell 语法）。
+
+**`type`**：
+
+- `"r"`：**读模式**。父进程可以通过返回的 `FILE*` 读取子进程命令产生的输出数据（标准输出）。
+- `"w"`：**写模式**。父进程可以通过返回的 `FILE*` 向子进程的标准输入写入数据。
+
+**返回值**：成功返回标准文件流指针 `FILE*`，失败返回 `NULL`。
+
+**`pclose()`**：用于关闭管道流。它会阻塞等待子进程结束，并返回 Shell 命令的退出状态码（可通过 `WEXITSTATUS()` 等宏解析）。
+
+
+
+读模式：
+
+```c
+#include <stdio.h>
+
+// 父进程
+int main(){
+    FILE *fp = popen("./print","r");	// print程序，负责向标准输出流写入数据
+    char buf[1024] = {0};
+    fread(buf,1,sizeof(buf),fp);
+    printf("msg from pipe, buf = %s\n", buf);
+}
+
+// print.c
+int main(){
+  printf("I am print, writing to stdout\n");
+}
+```
+
+
+
+写模式：
+
+```c
+#include <stdio.h>
+
+// 父进程
+int main(){
+    FILE *fp = popen("./sub","w");	
+    fwrite("1000 999",1,8,fp);
+}
+
+// sub.c
+int main(){
+  int lhs, rhs;
+  scanf("%d%d", &lhs, &rhs);
+  printf("lhs - rhs = %d\n", lhs-rhs);
+}
+```
 
 
 
