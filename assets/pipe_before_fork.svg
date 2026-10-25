@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1840" viewBox="0 0 1440 1840" role="img" aria-labelledby="title desc"><title id="title">先 pipe 再 fork：父子进程如何连上同一条管道</title><desc id="desc">分三阶段画出 pipe 创建两个文件描述符，fork 后父子独立的 fd 表指向同一条内核管道，父进程关闭读端、子进程关闭写端，数据从父进程写端经内核缓冲区流向子进程读端。强调关闭全部写端并读尽数据后 EOF。</desc><defs>
+<marker id="blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#2e66b6"/></marker>
+<marker id="orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#bd7127"/></marker>
+<marker id="green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#208365"/></marker>
+<marker id="gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#8799ac"/></marker>
+</defs><rect width="1440" height="1840" fill="#f5f7fb"/><style>text{font-family:"Noto Sans SC","Microsoft YaHei","PingFang SC",sans-serif;fill:#172c48}.title{font-size:40px;font-weight:700}.h{font-size:27px;font-weight:700}.b{font-size:23px}.small{font-size:20px;fill:#52647b}.tiny{font-size:18px;fill:#52647b}.code{font-family:Consolas,"Noto Sans SC",monospace;font-size:23px}.label{font-size:23px;font-weight:700}</style>
+<text x="55" y="72" class="title" xml:space="preserve">先 pipe，再 fork：把父子进程接到同一条管道上</text>
+<text x="55" y="114" class="small" xml:space="preserve">以父进程发送、子进程接收为例。pfd[0] 是读端，pfd[1] 是写端；假设它们的 fd 编号为 3、4。</text>
+<text x="55" y="174" class="h" xml:space="preserve">① pipe(pfd)：先有管道，再有两个访问它的 fd</text>
+<rect x="60" y="205" width="320" height="215" rx="14" fill="#eaf2ff" stroke="#b2c9e8" stroke-width="2"/>
+<text x="80" y="244" class="label" xml:space="preserve">此时只有父进程</text>
+<rect x="80" y="264" width="280" height="48" rx="5" fill="#fff" stroke="#b2c9e8" stroke-width="2"/>
+<text x="95" y="296" class="code" xml:space="preserve">pfd[0] = 3   读端</text>
+<rect x="80" y="332" width="280" height="48" rx="5" fill="#fff" stroke="#b2c9e8" stroke-width="2"/>
+<text x="95" y="364" class="code" xml:space="preserve">pfd[1] = 4   写端</text>
+<rect x="555" y="205" width="825" height="215" rx="14" fill="#eef5f0" stroke="#b5d9ca" stroke-width="2"/>
+<text x="575" y="244" class="label" xml:space="preserve">内核：创建一条匿名管道</text>
+<rect x="600" y="270" width="180" height="65" rx="14" fill="#dce9ff" stroke="#b2c9e8" stroke-width="2"/>
+<text x="620" y="311" class="label" xml:space="preserve">读端对象</text>
+<rect x="1125" y="270" width="220" height="65" rx="14" fill="#fff1d8" stroke="#e7c591" stroke-width="2"/>
+<text x="1150" y="311" class="label" xml:space="preserve">写端对象</text>
+<rect x="825" y="270" width="255" height="65" rx="5" fill="#fff" stroke="#bdcbdc" stroke-width="2"/>
+<text x="847" y="311" class="label" xml:space="preserve">管道缓冲区</text>
+<path d="M780 302H825 M1080 302H1125" stroke="#8799ac" stroke-width="3"/>
+<path d="M360 288H588" fill="none" stroke="#2e66b6" stroke-width="3" marker-end="url(#blue)"/>
+<path d="M360 356H1090V302H1113" fill="none" stroke="#bd7127" stroke-width="3" marker-end="url(#orange)"/>
+<text x="575" y="394" class="small" xml:space="preserve">缓冲区在内核内存中，不是磁盘文件，也不是父进程的用户缓冲区。</text>
+<text x="55" y="478" class="h" xml:space="preserve">② fork()：复制 fd 表，指向的内核管道仍然是同一条</text>
+<rect x="60" y="510" width="320" height="300" rx="14" fill="#eaf2ff" stroke="#b2c9e8" stroke-width="2"/>
+<text x="80" y="549" class="label" xml:space="preserve">父进程 · fd 表</text>
+<rect x="80" y="580" width="280" height="56" rx="5" fill="#fff" stroke="#b2c9e8" stroke-width="2"/>
+<text x="100" y="616" class="code" xml:space="preserve">fd 3 → 读端</text>
+<rect x="80" y="665" width="280" height="56" rx="5" fill="#fff" stroke="#b2c9e8" stroke-width="2"/>
+<text x="100" y="701" class="code" xml:space="preserve">fd 4 → 写端</text>
+<text x="80" y="775" class="small" xml:space="preserve">两端都继承了，尚未关闭。</text>
+<rect x="1060" y="510" width="320" height="300" rx="14" fill="#e8f6f1" stroke="#b5d9ca" stroke-width="2"/>
+<text x="1080" y="549" class="label" xml:space="preserve">子进程 · fd 表</text>
+<rect x="1080" y="580" width="280" height="56" rx="5" fill="#fff" stroke="#b5d9ca" stroke-width="2"/>
+<text x="1100" y="616" class="code" xml:space="preserve">fd 3 → 读端</text>
+<rect x="1080" y="665" width="280" height="56" rx="5" fill="#fff" stroke="#b5d9ca" stroke-width="2"/>
+<text x="1100" y="701" class="code" xml:space="preserve">fd 4 → 写端</text>
+<text x="1080" y="775" class="small" xml:space="preserve">两端都继承了，尚未关闭。</text>
+<rect x="550" y="510" width="340" height="300" rx="14" fill="#eef5f0" stroke="#b5d9ca" stroke-width="2"/>
+<text x="570" y="549" class="label" xml:space="preserve">同一条内核管道</text>
+<rect x="580" y="580" width="280" height="56" rx="5" fill="#dce9ff" stroke="#b2c9e8" stroke-width="2"/>
+<text x="620" y="616" class="label" xml:space="preserve">同一个读端</text>
+<rect x="580" y="665" width="280" height="56" rx="5" fill="#fff1d8" stroke="#e7c591" stroke-width="2"/>
+<text x="620" y="701" class="label" xml:space="preserve">同一个写端</text>
+<text x="570" y="775" class="small" xml:space="preserve">同一组管道缓冲页</text>
+<path d="M360 608H568" fill="none" stroke="#2e66b6" stroke-width="3" marker-end="url(#blue)"/>
+<path d="M1080 608H872" fill="none" stroke="#2e66b6" stroke-width="3" marker-end="url(#blue)"/>
+<path d="M360 693H568" fill="none" stroke="#bd7127" stroke-width="3" marker-end="url(#orange)"/>
+<path d="M1080 693H872" fill="none" stroke="#bd7127" stroke-width="3" marker-end="url(#orange)"/>
+<text x="55" y="852" class="small" xml:space="preserve">若先 fork，再由父子分别 pipe()，得到的是两条独立管道；先 pipe 才能继承同一条管道的 fd。</text>
+<text x="55" y="918" class="h" xml:space="preserve">③ 关闭不用的端：父只写，子只读</text>
+<rect x="60" y="950" width="320" height="275" rx="14" fill="#eaf2ff" stroke="#b2c9e8" stroke-width="2"/>
+<text x="80" y="990" class="label" xml:space="preserve">父进程 · 发送者</text>
+<rect x="80" y="1013" width="280" height="52" rx="5" fill="#f0f1f3" stroke="#d7dce3" stroke-width="2"/>
+<text x="95" y="1047" class="small" xml:space="preserve">fd 3：关闭读端</text>
+<path d="M330 1030l18 18m0 -18l-18 18" stroke="#c15b58" stroke-width="3"/>
+<rect x="80" y="1092" width="280" height="57" rx="5" fill="#fff1d8" stroke="#e7c591" stroke-width="2"/>
+<text x="100" y="1129" class="code" xml:space="preserve">fd 4：write()</text>
+<text x="80" y="1190" class="small" xml:space="preserve">写完后再 close(pfd[1])</text>
+<rect x="1060" y="950" width="320" height="275" rx="14" fill="#e8f6f1" stroke="#b5d9ca" stroke-width="2"/>
+<text x="1080" y="990" class="label" xml:space="preserve">子进程 · 接收者</text>
+<rect x="1080" y="1013" width="280" height="52" rx="5" fill="#f0f1f3" stroke="#d7dce3" stroke-width="2"/>
+<text x="1095" y="1047" class="small" xml:space="preserve">fd 4：关闭写端</text>
+<path d="M1330 1030l18 18m0 -18l-18 18" stroke="#c15b58" stroke-width="3"/>
+<rect x="1080" y="1092" width="280" height="57" rx="5" fill="#dce9ff" stroke="#b2c9e8" stroke-width="2"/>
+<text x="1100" y="1129" class="code" xml:space="preserve">fd 3：read()</text>
+<text x="1080" y="1190" class="small" xml:space="preserve">读取到自己的用户缓冲区</text>
+<rect x="550" y="1000" width="340" height="200" rx="14" fill="#eef5f0" stroke="#b5d9ca" stroke-width="2"/>
+<text x="570" y="1043" class="label" xml:space="preserve">内核管道缓冲区</text>
+<rect x="570" y="1083" width="49" height="57" rx="4" fill="#fff" stroke="#bdcbdc" stroke-width="2"/>
+<text x="585" y="1120" class="code" xml:space="preserve">H</text>
+<rect x="630" y="1083" width="49" height="57" rx="4" fill="#fff" stroke="#bdcbdc" stroke-width="2"/>
+<text x="645" y="1120" class="code" xml:space="preserve">e</text>
+<rect x="690" y="1083" width="49" height="57" rx="4" fill="#fff" stroke="#bdcbdc" stroke-width="2"/>
+<text x="705" y="1120" class="code" xml:space="preserve">l</text>
+<rect x="750" y="1083" width="49" height="57" rx="4" fill="#fff" stroke="#bdcbdc" stroke-width="2"/>
+<text x="765" y="1120" class="code" xml:space="preserve">l</text>
+<rect x="810" y="1083" width="49" height="57" rx="4" fill="#fff" stroke="#bdcbdc" stroke-width="2"/>
+<text x="825" y="1120" class="code" xml:space="preserve">o</text>
+<text x="570" y="1176" class="small" xml:space="preserve">字节流 · 先进先出</text>
+<path d="M360 1120H538" fill="none" stroke="#bd7127" stroke-width="3" marker-end="url(#orange)"/>
+<text x="409" y="1099" class="small" xml:space="preserve" style="fill:#a56526">写入</text>
+<path d="M890 1120H1068" fill="none" stroke="#208365" stroke-width="3" marker-end="url(#green)"/>
+<text x="950" y="1099" class="small" xml:space="preserve" style="fill:#208365">读出</text>
+<rect x="55" y="1260" width="1330" height="104" rx="14" fill="#fff1d8" stroke="#e7c591" stroke-width="2"/>
+<text x="80" y="1300" class="h" xml:space="preserve" style="fill:#915b12">为什么子进程必须关掉自己不用的写端？</text>
+<text x="80" y="1340" class="small" xml:space="preserve">只有所有写端引用都关闭，并且管道数据已读完，read 才返回 0（EOF）；否则空管道上可能一直等。</text>
+<text x="55" y="1413" class="h" xml:space="preserve">代码顺序：先建立共同资源，再让子进程继承</text>
+<rect x="55" y="1440" width="1330" height="300" rx="14" fill="#fff" stroke="#cbdcf8" stroke-width="2"/>
+<text x="80" y="1473" class="code" xml:space="preserve">int pfd[2];</text>
+<text x="80" y="1499" class="code" xml:space="preserve">pipe(pfd);                  // 先创建管道</text>
+<text x="80" y="1525" class="code" xml:space="preserve">pid_t pid = fork();         // 再继承 fd</text>
+<text x="80" y="1551" class="code" xml:space="preserve">if (pid == 0) {             // 子：只读</text>
+<text x="80" y="1577" class="code" xml:space="preserve">    close(pfd[1]);</text>
+<text x="80" y="1603" class="code" xml:space="preserve">    /* 循环 read(pfd[0], ...)，直到 EOF；最后关闭读端 */</text>
+<text x="80" y="1629" class="code" xml:space="preserve">} else if (pid &gt; 0) {       // 父：只写</text>
+<text x="80" y="1655" class="code" xml:space="preserve">    close(pfd[0]);</text>
+<text x="80" y="1681" class="code" xml:space="preserve">    /* write(pfd[1], ...)；写完关闭写端，再 waitpid 回收子进程 */</text>
+<text x="80" y="1707" class="code" xml:space="preserve">}</text>
+<text x="55" y="1790" class="small" xml:space="preserve">图中箭头：①② 表示 fd 引用关系；③ 表示实际数据流。普通管道单向通信，双向通信通常要两条管道。</text>
+<text x="55" y="1824" class="tiny" xml:space="preserve">代码仅展示顺序与端点分工，省略错误处理；实际需处理 pipe / fork 失败、短读写与 EINTR。</text>
+</svg>

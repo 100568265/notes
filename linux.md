@@ -2328,19 +2328,30 @@ int main(){
 
 
 
+`NAME`
+       `pipe, pipe2 - create pipe`
+
+​	`#include <unistd.h>`
+
+​	`int pipe(int pipefd[2]);` 
+
+参数应该是一个长度为2的int数组数组名，第一个元素是读，第二个元素是写
+
+![pipe_before_fork](./assets/pipe_before_fork.svg)
+
+只有有父子关系的进程之间才能用无名管道进行通信。
 
 
 
+**有名管道的函数**
 
+ `int mkfifo(const char *path, mode_t mode);` 创建有名管道
 
+`int unlink(const char *path);` 删除文件
 
+`int rename(const char *oldpath, const char *newpath);` mv文件
 
-
-
-
-
-
-
+`int link(const char *oldpath, const char *newpath);` 建立硬链接
 
 
 
