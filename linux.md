@@ -1635,7 +1635,32 @@ int main(){
 
 
 
-#### **初识虚拟内存**
+#### **虚拟内存的原理**
+
+一页的固定大小 = 4096字节(4KB)。
+
+每页的固定大小为4KB，也就是2的12次方，那么用12位就可以表示业内的地址偏移。
+
+假设我们用32位来表示内存的地址，那么前20位叫`页号`，后12位叫`页内偏移`。
+
+由于物理内存和虚拟内存的页内偏移其实是一致的，所以虚拟内存到物理内存的映射只需要映射页号即可。
+
+**Q1：怎么从虚拟页号得到一个物理页号？**
+
+一个数组，用虚拟地址作为下标，每个元素用来存储页号等信息。
+
+所以这个数组有2的20次方个元素(1MB)，假设每个元素4个字节，这样这个数组就是4MB。
+
+每个进程需要一个独立的页表，因为不同进程的虚拟物理内存映射关系不同。
+
+那么一个进程，就需要4MB来存储页表，怎么才能减小页表的大小？
+
+
+
+**Q2：进程切换的代价有哪些？**
+
+1. 切换上下文(寄存器状态(PC))
+2. 切换页表
 
 ![virtual-memory-structure](./assets/virtual-memory-structure.svg)
 
@@ -2358,4 +2383,520 @@ int main(){
 
 
 
+
+##### 共享内存
+
+效率最高的IPC。
+
+将不同进程的虚拟内存页映射到同一个物理页/页框。
+
+
+
+##### 消息队列
+
+IPC的消息队列：只能在本机通信
+
+广义的消息队列：网络通信，如kafka
+
+
+
+
+
+##### 信号
+
+一种软件层面的异步事件机制。
+
+**中断：**硬件层面
+
+
+
+不同的信号用不同的整数标识
+
+`kill -l`命令可以查询不同信号名称对应的整数数值
+
+
+
+**信号的默认行为**
+
+| 信号名称 | 默认行为                                                     |
+| -------- | ------------------------------------------------------------ |
+| Term     | Default action is to terminate the process.                  |
+| Ign      | Default action is to ignore the signal.                      |
+| Core     | Default action is to terminate the process and dump core (see core(5)). |
+| Stop     | Default action is to stop the process.                       |
+| Cont     | Default action is to continue the process if it is currently stopped. |
+
+
+
+**当信号产生时**
+
+信号产生时会修改目标进程的`task_struct`。
+
+从目标进程的视角中，可以认为是所有的信号都来自于内核。
+
+
+
+**signal函数**：注册信号处理行为，当信号到来时，才会调用这个函数。
+
+`SYNOPSIS`
+       `#include <signal.h>`
+
+​	`typedef typeof(void (int))  *sighandler_t;`
+
+​	`sighandler_t signal(int signum, sighandler_t handler);`
+
+返回值是一个函数指针。
+
+参数1：int类型
+
+参数2：函数指针
+
+
+
+**信号递送的行为**
+
+```c
+#include <signal.h>
+#include <stdio.h>
+#include <unistd.h>
+
+void sig_func(int num){
+    printf("num = %d\n",num);
+    printf("before sleep, I am %d\n",num);
+    sleep(3);
+    printf("after sleep, I am %d\n",num);
+}
+
+int main(){
+    void (*ret)(int);
+    ret = signal(SIGINT,sig_func);
+    while(1){
+
+    }
+}
+```
+
+shell执行：
+
+```shell
+ubuntu@VM-0-3-ubuntu:~/code$ ./a.out 
+^Cnum = 2
+before sleep, I am 2
+^C^C^C^Cafter sleep, I am 2
+num = 2
+before sleep, I am 2
+after sleep, I am 2
+```
+
+**Q1：为什么这里一共按了5次`Ctrl+C`，但实际只递送了2次信号？**
+
+第一次信号递送执行中，由于sleep了3秒，在这期间第二次信号就来了，这时候会发生`阻塞`，让产生的信号不能马上`递送`，而是处于`未决`状态。(未决：已产生，但未递送的信号)
+
+由于mask和pending状态的数据结构是位图，所以只能存储2种状态，如果在未决状态下，再次产生信号，会丢失
+
+
+
+**Q2：不同信号的阻塞会怎么样？**
+
+当信号在递送的过程中，会把自己加入到mask里面。
+
+类似于一个栈结构，比如2号信号阻塞的时候，产生了一个3号信号，会先执行3号信号，等3号信号递送完毕后，再处理2号信号。
+
+
+
+**低速系统调用**
+
+可能陷入永久等待的系统调用。
+
+signal会自动重启低速系统调用。
+
+
+
+**`sigaction`函数**
+
+`sigaction, rt_sigaction - examine and change a signal action`
+
+```c
+#include <signal.h>
+
+int sigaction(int signum, const struct sigaction *act, struct sigaction *oldact);
+
+// sigaction结构体
+struct sigaction {
+	void     (*sa_handler)(int);							// 2选1，递送行为，对应sig_func
+	void     (*sa_sigaction)(int, siginfo_t *, void *);		// ↑
+	sigset_t   sa_mask;		// 额外mask
+	int        sa_flags;	// 属性
+	void     (*sa_restorer)(void); // 没用的
+};
+```
+
+**sigaction的属性**
+
+sigaction不默认重启低速系统调用：
+
+```c
+#include <signal.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <memory.h>
+
+void sig_func(int num){
+    printf("num = %d\n",num);
+}
+
+int main(){
+    struct sigaction act;
+    memset(&act,0,sizeof(act));
+    act.sa_handler = sig_func;
+    int ret = sigaction(SIGINT,&act,NULL);
+    
+    char buf[100] = {0};
+    read(STDIN_FILENO,buf,sizeof(buf));
+    printf("buf = %s\n",buf);
+}
+
+-------------------shell-------------------------
+ubuntu@VM-0-3-ubuntu:~/code$ ./sigaction 
+^Cnum = 2
+buf = 
+ubuntu@VM-0-3-ubuntu:~/code$ 
+```
+
+
+
+可以调整属性，让sigaction重启低速系统调用：
+
+```c
+#include <signal.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <memory.h>
+
+void sig_func(int num){
+    printf("num = %d\n",num);
+}
+
+int main(){
+    struct sigaction act;
+    memset(&act,0,sizeof(act));
+    act.sa_handler = sig_func;
+    act.sa_flags = SA_RESTART;
+    int ret = sigaction(SIGINT,&act,NULL);
+    
+    char buf[100] = {0};
+    read(STDIN_FILENO,buf,sizeof(buf));
+    printf("buf = %s\n",buf);
+}
+
+-------------------shell-------------------------
+ubuntu@VM-0-3-ubuntu:~/code$ ./sigaction 
+^Cnum = 2
+zzz
+buf = zzz
+
+ubuntu@VM-0-3-ubuntu:~/code$ 
+```
+
+
+
+**时钟函数**
+
+`alarm - set an alarm clock for delivery of a signal`
+
+`#include <unistd.h>`
+
+`unsigned int alarm(unsigned int seconds);`
+
+
+
+
+
+
+
+### 线程
+
+
+
+#### **创建线程**
+
+一启动进程，就创建了主线程，栈区从`main`开始压栈。
+
+`pthread_create - create a new thread`
+
+```c
+#include <pthread.h>
+int pthread_create(pthread_t *thread,				// PID
+const pthread_attr_t *attr,							// 线程属性
+typeof(void *(void *_Nullable)) *start_routine,		// 线程启动函数的函数指针
+void *arg);											// start_routine的参数
+```
+
+
+
+**获取本线程的线程ID**
+
+`pthread_self - obtain ID of the calling thread`
+
+`#include <pthread.h>`
+
+`pthread_t pthread_self(void);`
+
+```c
+#include <pthread.h>
+#include <stdio.h>
+#include <unistd.h>
+
+void *thread_func(void *arg){
+    printf("I am child thread, tid = %lu\n", pthread_self());
+}
+
+int main(){
+    printf("I am main thread, tid = %lu\n", pthread_self());
+    pthread_t tid;
+    pthread_create(&tid,NULL,thread_func,NULL);
+    sleep(1);
+    return 0;
+}   
+```
+
+如果主线程终止，整个进程终止
+
+
+
+
+
+**多线程禁用perror**
+
+由于perror不是线程安全的，因此多线程场景下应该用`strerror+fprintf`。
+
+```c
+#include <pthread.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <string.h>
+
+void *thread_func(void *arg){
+    printf("I am child thread, tid = %lu\n", pthread_self());
+    while(1){
+        sleep(1);
+    }
+}
+
+int main(){
+    pthread_t tid;
+    for(int i=0;;++i){	// 看看一个进程到底能创建多少个线程
+        int ret = pthread_create(&tid,NULL,thread_func,NULL);
+        if(ret!=0){
+            fprintf(stderr,"%s:%s\n", "error:", strerror(ret));
+            printf("i = %d\n",i);
+            break;
+        }
+    }
+    
+    return 0;
+}   
+```
+
+
+
+#### **线程的终止**
+
+一个进程的任一线程：
+
+1. main return
+2. exit
+3. abort
+4. 收到信号
+
+整个进程终止，其中的所有线程也终止了。
+
+
+
+**Q1：子线程如何只终止自己呢？**
+
+从任何位置调用`pthread_exit`
+
+
+
+**pthread_join**
+
+`pthread_join - join with a terminated thread`
+
+```c
+#include <pthread.h>
+
+int pthread_join(pthread_t thread, void **retval);
+//                目标线程的PID
+```
+
+
+
+等待任何一个线程的终止：
+
+```c
+void *thread_func(void *arg){
+    printf("I am child thread, tid = %lu\n", pthread_self());
+    pthread_exit((void*)23456);
+}
+
+int main(){
+    pthread_t tid;
+    int ret = pthread_create(&tid,NULL,thread_func,NULL);
+    pthread_join(tid,NULL); // 不获取子线程的终止状态，阻塞线程直到tid线程终止
+}   
+```
+
+
+
+
+
+#### 线程的取消
+
+`pthread_cancel - send a cancelation request to a thread`
+
+`#include <pthread.h>`
+
+`int pthread_cancel(pthread_t thread);`
+
+向一个线程发送取消请求，该线程将运行至某个取消点(cancellation point)时终止。
+
+比如说下面这个例子，主线程向子线程发送取消请求，但因为子线程没有运行到取消点，导致线程的取消不成功，解决方法是手动增加取消点。
+
+```c
+#include <pthread.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <string.h>
+
+void *thread_func(void *arg){
+    //printf("I am child thread, tid = %lu\n", pthread_self());
+    while(1){
+        pthread_testcancel(); // 手动增加取消点
+    }
+    pthread_exit((void*)0);
+}
+
+int main(){
+    pthread_t tid;
+    int ret = pthread_create(&tid,NULL,thread_func,NULL);
+    pthread_cancel(tid);
+    void *retval;
+    pthread_join(tid,&retval); // 如果tid是被cancel掉的，retval就是-1
+    printf("child thread return value = %ld\n",(long)retval);
+}   
+```
+
+cancel不是立刻终止一个线程：
+
+1. cancel会立刻修改目标线程的**取消标志位**
+2. 目标线程运行到一些特殊的函数(取消点)
+3. 运行线程终止清理函数(资源清理栈)
+4. 取消点函数调用完成前/后会终止线程
+
+
+
+#### 互斥锁 - mutex
+
+一个线程可以做加锁操作：
+
+1. 若未加锁，加锁操作将加锁，线程继续运行
+
+2. 若已有任何线程持有锁，加锁的线程会阻塞
+
+```c
+// 动态初始化
+int pthread_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *mutexattr);
+
+// 加锁
+int pthread_mutex_lock(pthread_mutex_t *mutex);
+
+int pthread_mutex_trylock(pthread_mutex_t *mutex);
+
+// 解锁
+int pthread_mutex_unlock(pthread_mutex_t *mutex);
+
+// 销毁锁
+int pthread_mutex_destroy(pthread_mutex_t *mutex);
+```
+
+
+
+使用互斥锁保护资源：
+
+```c
+#include <pthread.h>
+#include <stdio.h>
+#define NUM 10000000
+
+typedef struct shared_res{
+    pthread_mutex_t mutex;
+    int count;
+}shared_res_t;
+
+void *thread_func(void *arg){
+    shared_res_t *pSharedRes = (shared_res_t*)arg;
+    for(int i = 0;i < NUM; ++i){
+        // ----------临界区-----------------------
+        // 所有共享资源的访问要放入临界区
+        pthread_mutex_lock(&pSharedRes->mutex);
+        ++pSharedRes->count;
+        pthread_mutex_unlock(&pSharedRes->mutex);
+        // ----------临界区-----------------------
+    }
+}
+
+int main(){
+    shared_res_t share_res;
+    share_res.count = 0;
+    pthread_mutex_init(&share_res.mutex,NULL); // 以默认形式初始化锁
+    pthread_t tid;
+    int ret = pthread_create(&tid,NULL,thread_func,(void*)&share_res);
+    for(int i = 0;i < NUM; ++i){
+        // ----------临界区-----------------------
+        // 所有共享资源的访问要放入临界区
+        pthread_mutex_lock(&share_res.mutex);
+        ++share_res.count;
+        pthread_mutex_unlock(&share_res.mutex);
+        // ----------临界区-----------------------
+    }
+    pthread_join(tid,NULL);
+    printf("count = %d\n",share_res.count);
+    pthread_mutex_destroy(&share_res.mutex);
+}
+```
+
+
+
+#### **死锁**
+
+线程阻塞，等待永远不可能为真的条件成立。
+
+
+
+**死锁的种类**
+
+1. 申请资源的顺序有问题，比如两根管道的建立
+2. 持有锁的线程终止了
+3. 一个线程对同一把锁加锁两次
+
+```c
+#include <pthread.h>
+#include <stdio.h>
+
+int main(){
+    pthread_mutex_t mutex;
+    pthread_mutex_init(&mutex,NULL);
+    pthread_mutex_lock(&mutex);
+    puts("lock first time");
+    pthread_mutex_lock(&mutex);
+    puts("lock second time");
+    pthread_mutex_destroy(&mutex);
+}
+
+----------------------------------------
+ubuntu@VM-0-3-ubuntu:~/code$ gcc deadlock.c -o dlock
+ubuntu@VM-0-3-ubuntu:~/code$ ./dlock 
+lock first time
+```
 
