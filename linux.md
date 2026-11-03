@@ -2811,6 +2811,7 @@ int pthread_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *mutexa
 // 加锁
 int pthread_mutex_lock(pthread_mutex_t *mutex);
 
+// 非阻塞加锁
 int pthread_mutex_trylock(pthread_mutex_t *mutex);
 
 // 解锁
@@ -2899,4 +2900,375 @@ ubuntu@VM-0-3-ubuntu:~/code$ gcc deadlock.c -o dlock
 ubuntu@VM-0-3-ubuntu:~/code$ ./dlock 
 lock first time
 ```
+
+
+
+
+
+#### 条件变量
+
+实现事件的同步。提供了一种**无竞争**的事件会和场景。
+
+条件变量必须配合锁一起使用。
+
+
+
+条件变量的实现过程：
+
+1. 设计一个条件，这个条件决定了本线程是否需要等待。
+2. 如果不满足，调用wait会使本线程陷入等待。
+3. 等待期间，另外的线程会运行(占用cpu)，直到将条件改成满足，通知/唤醒(signal)阻塞的线程恢复就绪。
+
+
+
+**条件变量的接口**
+
+```c
+#include <pthread.h>
+
+// 创建
+pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+int pthread_cond_init(pthread_cond_t *cond, pthread_condattr_t *cond_attr);
+
+// 唤醒
+int pthread_cond_signal(pthread_cond_t *cond);
+
+int pthread_cond_broadcast(pthread_cond_t *cond);
+
+// 等待
+int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex);
+
+int pthread_cond_timedwait(pthread_cond_t *cond, pthread_mutex_t *mutex, const struct timespec *abstime);
+
+// 销毁
+int pthread_cond_destroy(pthread_cond_t *cond);
+```
+
+
+
+条件变量的一般流程：
+
+```c
+#include <pthread.h>
+#include <stdio.h>
+#include <unistd.h>
+
+typedef struct shareRes_s{
+    int flag;
+    pthread_cond_t cond;
+    pthread_mutex_t mutex;
+} shareRes_t;
+
+void * threadFunc(void *arg){
+    shareRes_t *pShareRes = (shareRes_t*)arg;
+    pthread_mutex_lock(&pShareRes->mutex);
+    // 只有在加了锁的状态下，才能使用wait。因为我们希望检查状态和陷入等待是一个原子操作
+    if(pShareRes->flag == 0){
+        pthread_cond_wait(&pShareRes->cond,&pShareRes->mutex);
+    }
+    puts("world");
+    pthread_mutex_unlock(&pShareRes->mutex);
+    pthread_exit(NULL);
+}
+
+int main(){
+    // 初始化锁和条件变量
+    shareRes_t shareRes;
+    pthread_mutex_init(&shareRes.mutex,NULL);
+    pthread_cond_init(&shareRes.cond,NULL);
+    shareRes.flag = 0;
+
+    // 创建一个子线程
+    pthread_t tid;
+    pthread_create(&tid,NULL,threadFunc,(void*)&shareRes);
+
+    //sleep(1);
+    // 先执行一个事件，然后唤醒等待在条件变量上的某个线程
+    puts("Hello");
+    shareRes.flag = 1;
+    pthread_cond_signal(&shareRes.cond); 
+
+    // 等待子线程的终止 + 收尾
+    pthread_join(tid,NULL);
+    pthread_cond_destroy(&shareRes.cond);
+    pthread_mutex_destroy(&shareRes.mutex);
+}
+```
+
+
+
+**pthread_cond_wait的实现**
+
+1. 判断有没有加锁
+2. 把自己加入唤醒队列
+3. 解锁并陷入阻塞
+4. 收到signal之后，使自己处于就绪状态
+5. 加锁
+6. 持有锁之后再继续运行
+
+
+
+
+
+#### 线程安全
+
+有些库函数的诞生比操作多线程还早，在多线程的情况下，运行可能不正确。
+
+
+
+下面这个例子通过对比不可重入函数 `ctime()` 和可重入（线程安全）函数 `ctime_r()`，展示了**如何通过将缓冲区所有权交由主调函数（调用方）分配，来解决多线程共享静态变量导致的数据竞争问题**。
+
+
+
+**1.线程不安全版本（使用 `ctime`）**
+
+在这个版本中，`ctime()` 内部使用的是静态全局缓冲区。当主线程修改时间后，子线程再次读取 `p` 时，内容会被覆盖错乱。
+
+```c
+#include <stdio.h>
+#include <time.h>
+#include <pthread.h>
+#include <unistd.h>
+
+void *threadFunc(void *arg) {
+    time_t now = time(NULL);
+    char *p = ctime(&now); 
+    printf("child (第一次打印): %s", p);
+    sleep(5);
+    printf("child (第二次打印，已被覆盖): %s", p);
+}
+
+int main() {
+    pthread_t tid;
+    pthread_create(&tid, NULL, threadFunc, NULL); 
+    sleep(2); 
+    time_t mainNow = time(NULL);
+    char *p = ctime(&mainNow); 
+    printf("main : %s", p);
+    pthread_join(tid, NULL);
+}
+```
+
+**运行现象：** 子线程第二次打印的时间字符串，会变得跟主线程打印的时间一模一样（即子线程原本的时间数据丢失了）。
+
+
+
+**2.线程安全版本（使用 `ctime_r`）**
+
+在这个版本中，主线程和子线程各自在自己的栈上分配内存（`buf`），并作为参数传递给 `ctime_r`，各自独立，互不影响。
+
+```c
+#include <stdio.h>
+#include <time.h>
+#include <pthread.h>
+#include <unistd.h>
+
+void *threadFunc(void *arg) {
+    time_t now = time(NULL);
+    char buf[1024] = {0}; // 在子线程栈上分配缓冲区
+    char *p = ctime_r(&now, buf); 
+    printf("child (第一次打印): %s", p);
+    sleep(5);
+    printf("child (第二次打印，未受影响): %s", p); 
+    return NULL;
+}
+
+int main() {
+    pthread_t tid;
+    pthread_create(&tid, NULL, threadFunc, NULL);
+    sleep(2);
+    time_t mainNow = time(NULL);
+    char buf[1024] = {0}; // 在主线程栈上分配自己的缓冲区
+    // 主线程使用自己独立的 buf
+    char *p = ctime_r(&mainNow, buf); 
+    printf("main : %s", p);
+    pthread_join(tid, NULL);
+    return 0;
+}
+```
+
+
+
+**可重入和不可重入**
+
+一个函数在调用过程，有机会再次调用自己，同步的形式就叫递归，异步的形式就叫重入，比如说多线程或信号。
+
+如果一个函数在重入后的结果和不重入的结果一样，就叫可重入函数。
+
+可重入函数：
+
+1. 不加锁，则不访问共享区域
+2. 不修改代码段
+3. 不调用不可重入函数
+
+
+
+
+
+
+
+### 网络
+
+
+
+#### 基础概念
+
+**如何定位一个主机？**
+
+IP地址
+
+**如何定位一个进程？**
+
+端口号
+
+
+
+##### **MAC地址**
+
+物理地址，比如`ether 52:54:00:8c:90:1b`，48位 = 6字节的数据
+
+以太网帧的一般格式：RFC-894
+
+![img](./assets/1-10.jpg)
+
+这里的地址都是MAC地址，6字节。
+
+
+
+##### **ARP协议**
+
+ARP（Address Resolution Protocol，地址解析协议）
+
+根据目标 **IP 地址**，拿到对应的 **MAC 地址**，工作在数据链路层和网络层之间。
+
+流程举例：
+
+1. 主机 A 想发给 192.168.1.10（同网段）
+2. A 查自己的 ARP 缓存表，看有没有这个 IP 对应的 MAC
+3. 没有 → 发 **ARP 广播请求**：“谁是 192.168.1.10？请把你的 MAC 告诉我”
+4. 局域网里所有主机都收到广播，只有 IP 匹配的主机 B 回复 **ARP 单播应答**，带上自己 MAC
+5. A 收到应答，把 <IP → MAC> 存入 ARP 缓存，之后就可以构造以太网帧正常通信
+
+
+
+
+
+##### IP协议
+
+IP 协议（Internet Protocol，网际协议）
+
+负责跨网络把数据包送到目标 IP，做寻址、路由、分片，工作在网络层（三层）。
+
+
+
+**Ipv4数据报格式**
+
+![IPv4-datagram](./assets/IPv4-datagram.png)
+
+Total Length总长度：16比特，2字节，也就是最长是65535个字节。
+
+Identification标识：同一个原始包的不同分片，标识是同一个。
+
+Flags+offset：用于标识分片和片偏移。
+
+TTL：存活时间。为了避免一个旧包在网络中无限循环。
+
+Protocol：协议，描述上层协议的类型，最常见的ICMP，UDP，TCP
+
+这里对比以太网帧的MTU是1500字节， 说明一个以太网帧放不下一个IPv4数据报，因此这里需要**分片和重组**。
+
+
+
+**分片和重组**
+
+链路有 MTU（最大帧长度），如果 IP 包太大超过 MTU，IP 会把包切成小片；
+
+每一个分片是一个单独的IP数据报，有自己单独的IP头部。
+
+到达目标主机后，再重新拼回完整数据包。
+
+
+
+
+
+##### **NAT技术**
+
+把内网私有 IP，转换成公网 IP，实现多台内网设备共用一个公网 IP 上网，一般在路由器上实现。
+
+核心原理：
+
+1. 内网主机 `192.168.1.100:5000` 发起访问外网 `223.5.5.5:80`
+2. 路由器收到包，记下这条映射：`(内网IP+端口) ↔ (公网IP+临时端口)`
+3. 把源 IP 改成路由器的公网 IP，源端口换成路由器自己一个空闲端口，发出去
+4. 外网服务器回复包，目标是【公网 IP + 那个临时端口】
+5. 路由器查表，根据端口找到对应的内网主机，改回内网 IP 和原始端口，转发回去
+
+
+
+**路由器的原理**
+
+路由器工作在L3。
+
+根据包的目的IP地址，做转发操作。
+
+![router](./assets/router.png)
+
+
+
+##### TCP
+
+面向连接的协议，可靠，全双工，端到端(不支持广播和组播)
+
+
+
+**Q1：TCP怎么保证可靠性？**
+
+1. 确认机制ACK
+2. 缓冲区保存已发送未确认的数据
+3. 定时器，超时重传
+4. 为了避免接收方收到重复的包，需要带上序号
+
+
+
+**Q2：TCP怎么限制速度？**
+
+限制已发送未确认的包的数量 - 滑动窗口机制
+
+
+
+**TCP3次握手**
+
+![3-way-handshake](./assets/3-way-handshake.png)
+
+同步双方的序列号（ISN），并且确认双方收发能力都正常，建立可靠的连接状态。
+
+TCP 是面向连接、可靠传输，核心依靠**序列号 + ACK 确认号**。序列号是每一方自己独立生成的初始序号 ISN，双方都要把自己的 ISN 告诉对方，还要确认收到对方的 ISN。
+
+
+
+**TCP4次挥手**
+
+![4-way-handshake](./assets/4-way-handshake.png)
+
+
+
+**TCP段的头部**
+
+![tcp-segment-format](./assets/tcp-segment-format.png)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
