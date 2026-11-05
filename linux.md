@@ -3260,6 +3260,11 @@ TCP 是面向连接、可靠传输，核心依靠**序列号 + ACK 确认号**�
 
 
 
+##### UDP
+
+不可靠，无连接，消息有边界
+
+![image-20261104202906085](./assets/image-20261104202906085.png)
 
 
 
@@ -3267,8 +3272,327 @@ TCP 是面向连接、可靠传输，核心依靠**序列号 + ACK 确认号**�
 
 
 
+##### 字节序
+
+大端法：高位低地址，低位高地址
+
+小端法：高位高地址，低位低地址
+
+**大端**法也叫**网络字节序**
+
+
+
+**大小端转换**
+
+```c
+#include <arpa/inet.h>
+
+// 从主机字节序(小端)转到网络字节序(大端)
+uint32_t htonl(uint32_t hostlong);
+uint16_t htons(uint16_t hostshort);
+
+uint32_t ntohl(uint32_t netlong);
+uint16_t ntohs(uint16_t netshort);
+```
+
+h：host，主机
+
+n：net，网络
+
+s：short，2字节
+
+l：4字节
+
+```c
+#include <arpa/inet.h>
+#include <stdio.h>
+
+int main(){
+    unsigned short s = 0x1234;
+    printf("s = %x\n",s);
+    printf("htons = %x\n",htons(s));
+
+    unsigned int i = 0x12345678;
+    printf("i = %x\n",i);
+    printf("htonl = %x\n",htonl(i));
+}
+```
+
+
+
+#### socket系统调用
+
+**TCP流程图**
+
+​						客户端								     服务端
+
+![image-20261104213817967](./assets/image-20261104213817967.png)
+
+##### socket
+
+`socket - create an endpoint for communication`
+
+`#include <sys/socket.h>`
+
+`int socket(int domain, int type, int protocol);`
+
+```c
+/* 现代 C（C99/C11/C17/C23）权威写法：安全、简洁、无 memset */
+struct addrinfo hints = {
+    .ai_family   = AF_UNSPEC,   // 显式指定 IPv4/IPv6 通用
+    .ai_socktype = SOCK_STREAM, // 显式指定 TCP
+};
+
+struct addrinfo *res = NULL;
+
+// 2. 自动解析 IP/域名 与 端口/服务名
+int status = getaddrinfo("127.0.0.1", "8080", &hints, &res);
+
+int fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+```
+
+
+
+##### connect
+
+`connect - initiate a connection on a socket`
+
+`#include <sys/socket.h>`
+
+`int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen);`
+
+```c
+connect(fd, res->ai_addr, res->ai_addrlen);
+freeaddrinfo(res);
+```
+
+
+
+**Q1：如何区分两条不同的TCP连接？**
+
+四元组 <源IP，源端口号，目的IP，目的端口号>，如果都一样，就是同一条连接。
+
+
+
+##### **bind**
+
+`bind - bind a name to a socket`
+
+`#include <sys/socket.h>`
+
+`int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen);`
+
+绑定一个`ip:port`给socket
+
+
+
+##### listen
+
+`listen - listen for connections on a socket`
+
+`#include <sys/socket.h>`
+
+`int listen(int sockfd, int backlog);`
+
+listen是清空socket的文件对象，建立了半连接队列和全连接队列。
+
+listen是说明让socket当做服务端来使用。
+
+backlog：半连接队列的长度
+
+
+
+##### accept
+
+`accept, accept4 - accept a connection on a socket`
+
+`#include <sys/socket.h>`
+
+`int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen);`
+
+accept从全连接队列中取出一个连接，构建一个新的已连接socket。
+
+
+
+##### send
+
+`send, sendto, sendmsg - send a message on a socket`
+
+`#include <sys/socket.h>`
+
+`ssize_t send(int sockfd, void *buf, size_t len, int flags);`
+
+
+
+##### recv
+
+`recv, recvfrom, recvmsg - receive a message from a socket`
+
+`#include <sys/socket.h>`
+
+`ssize_t recv(int sockfd, void *buf, size_t len,int flags);`
 
 
 
 
+
+#### **TCP样例**
+
+服务端：
+
+```c
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netdb.h>
+#include <sys/select.h>
+#include <unistd.h>
+#include <string.h>
+
+int main()
+{
+    // 1. 配置监听条件（AI_PASSIVE 表示服务端 bind 模式）
+    struct addrinfo hints = {
+                        .ai_family = AF_UNSPEC,     // IPv4 / IPv6 通用
+                        .ai_socktype = SOCK_STREAM, // TCP
+                        .ai_flags = AI_PASSIVE      // 自动填充 INADDR_ANY (0.0.0.0)
+                    },
+                    *res;
+
+    // node 传 NULL，自动绑定 1234 端口
+    getaddrinfo(NULL, "1234", &hints, &res);
+
+    // 2. 创建 Socket
+    int listen_fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+
+    // 3. 设置端口复用（非常重要！防止重启服务端时报 Address already in use 错误）
+    // 主动关闭方在4次挥手之后会进入TIME_WAIT状态，固定时间60s
+    // 服务端在TIME_WAIT期间内，不允许bind同样的ip和端口
+    // 这里可以让服务端无视TIME_WAIT
+    int opt = 1;
+    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    // 4. 绑定端口并开始监听
+    bind(listen_fd, res->ai_addr, res->ai_addrlen);
+    freeaddrinfo(res); // 绑定完即可释放地址链表内存
+
+    listen(listen_fd, 128); // 128 为半连接队列 backlog 大小
+    printf("Server in listening on port 1234...\n");
+
+    // 5. 阻塞等待并接受客户端连接
+    int client_fd = accept(listen_fd, NULL, NULL);
+
+    // 6. select同时监听标准输入和client_fd
+    fd_set rdset;
+    char buf[4096] = {0};
+    while (1)
+    {
+        FD_ZERO(&rdset);
+        FD_SET(STDIN_FILENO, &rdset);
+        FD_SET(client_fd, &rdset);
+        select(client_fd + 1, &rdset, NULL, NULL, NULL);
+        if (FD_ISSET(STDIN_FILENO, &rdset))
+        { // 如果标准输入就绪
+            bzero(buf, sizeof(buf));
+            read(STDIN_FILENO, buf, sizeof(buf));
+            send(client_fd, buf, strlen(buf), 0);
+        }
+        if (FD_ISSET(client_fd, &rdset))
+        { // 如果socket就绪
+            bzero(buf, sizeof(buf));
+            ssize_t ret = recv(client_fd, buf, sizeof(buf), 0);
+            if (ret == 0)
+            {
+                printf("\npeer disconnected.\n");
+                break;
+            }
+            else if (ret <= 0)
+            {
+                perror("recv error");
+                break;
+            }
+            puts(buf);
+        }
+    }
+    close(listen_fd);
+    close(client_fd);
+}
+```
+
+客户端：
+
+```c
+#include <stdio.h>
+#include <sys/socket.h>
+#include <netdb.h>
+#include <stdlib.h>
+#include <sys/select.h>
+#include <unistd.h>
+#include <string.h>
+
+int main()
+{
+    struct addrinfo hints = {
+        .ai_family = AF_UNSPEC,     // 显式指定 IPv4/IPv6 通用
+        .ai_socktype = SOCK_STREAM, // 显式指定 TCP
+    };
+    struct addrinfo *res = NULL;
+    int status = getaddrinfo("127.0.0.1", "1234", &hints, &res);
+
+    // 1.创建socket
+    int fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+
+    // 2.connect建立连接
+    if (connect(fd, res->ai_addr, res->ai_addrlen) == -1)
+    {
+        perror("connect error!");
+        exit(1);
+    }
+
+    fd_set rdset;
+    char buf[4096] = {0};
+    while (1)
+    {
+        FD_ZERO(&rdset);
+        FD_SET(STDIN_FILENO, &rdset);
+        FD_SET(fd, &rdset);
+        select(fd + 1, &rdset, NULL, NULL, NULL);
+        if (FD_ISSET(STDIN_FILENO, &rdset))
+        { // 如果标准输入就绪
+            bzero(buf, sizeof(buf));
+            read(STDIN_FILENO, buf, sizeof(buf));
+            send(fd, buf, strlen(buf), 0);
+        }
+        if (FD_ISSET(fd, &rdset))
+        { // 如果socket就绪
+            bzero(buf, sizeof(buf));
+            ssize_t ret = recv(fd, buf, sizeof(buf), 0);
+            if (ret == 0)
+            {
+                printf("\npeer disconnected.\n");
+                break;
+            }
+            else if (ret <= 0)
+            {
+                perror("recv error");
+                break;
+            }
+            puts(buf);
+        }
+    }
+    close(fd);
+}
+
+```
+
+
+
+
+
+#### epoll
+
+IO多路复用，高性能
+
+1. 所有监听数据放在内核态，看成一个文件对象，避免了用户态到内核态的拷贝问题
+2. 把监听和就绪分离，epoll文件对象里，维护一个监听集合，以及一个就绪事件队列(因此只需要轮询就绪队列)
 
